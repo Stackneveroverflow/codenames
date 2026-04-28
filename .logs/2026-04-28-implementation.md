@@ -1,0 +1,22 @@
+# Implementation
+
+- 初始化 `pnpm` workspace、根级 `package.json`、`tsconfig.base.json`、`pnpm-workspace.yaml`。
+- 新增 `packages/shared`：
+  - 共享 `RoomState`、`CardContent`、`TurnState`、`ValidatedDeck` 等类型。
+  - 定义房间/对局 Socket 事件名与 `zod` payload schema。
+- 新增 `packages/game-core`：
+  - 实现经典 25 张牌分布、起手队额外一张牌。
+  - 实现出线索、猜词、翻刺客、回合切换、胜负判定等纯规则。
+  - 为核心规则补充 Vitest 单测。
+- 新增 `apps/server`：
+  - 实现内存房间 store、昵称唯一校验、断线重连、房主移交、快照裁剪。
+  - 实现 OpenAI `Responses API` 发牌服务，默认模型 `gpt-5.4-mini`，本地二次校验失败自动回退到词库。
+  - 实现 Socket.IO 网关，覆盖建房、入房、配置更新、角色分配、开局、出线索、猜牌、结束回合、重开。
+- 新增 `apps/web`：
+  - 实现首页、房间大厅/对局页两类主界面。
+  - 实现“情报档案室”风格布局、5x5 牌盘、角色面板、事件流、线索操作区。
+  - 实现基于 `localStorage` 的 `playerId + roomId` 重连。
+- 修正项：
+  - workspace 包改为直接导出 `src/index.ts`，保证本地开发与 `tsx` 运行可解析。
+  - 让房间 `deckMode` 真正控制 AI 发牌或本地 fallback。
+  - 补齐 Vite 类型、Node 类型与构建声明问题，确保 `lint`、`test`、`build` 全部通过。
