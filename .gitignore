@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+.turbo
+.vite
+.DS_Store
+playwright-report
+test-results
+pnpm-lock.yaml
+.env
+.env.local
+
