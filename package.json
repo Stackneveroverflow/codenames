@@ -1,0 +1,13 @@
+{
+  "name": "codenames-online",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.18.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --parallel --filter @codenames/server --filter @codenames/web dev",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint"
+  }
+}
+
