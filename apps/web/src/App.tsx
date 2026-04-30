@@ -447,7 +447,7 @@ function DemoPage() {
   );
 }
 
-export default function App() {
+export function App() {
   return (
     <Routes>
       <Route element={<HomePage />} path="/" />
