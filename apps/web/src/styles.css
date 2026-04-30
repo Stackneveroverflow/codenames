@@ -29,9 +29,8 @@ body {
   min-height: 100vh;
   color: var(--spy-paper);
   background:
-    linear-gradient(180deg, rgba(26, 22, 18, 0.7), rgba(26, 22, 18, 0.95)),
-    radial-gradient(ellipse at 30% 20%, rgba(212, 168, 75, 0.15), transparent 50%),
-    radial-gradient(ellipse at 70% 60%, rgba(45, 74, 62, 0.2), transparent 40%),
+    url('/spy-bg.jpg') center/cover no-repeat fixed,
+    linear-gradient(180deg, rgba(26, 22, 18, 0.6), rgba(26, 22, 18, 0.85)),
     var(--spy-dark);
   background-attachment: fixed;
   overflow-x: hidden;
