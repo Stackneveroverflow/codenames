@@ -232,6 +232,7 @@ function GameShell({
   onEndTurn: () => void;
   onUpdateConfig: (deckMode: "ai" | "fallback") => void;
 }) {
+  const navigate = useNavigate();
   const [clue, setClue] = useState("");
   const [count, setCount] = useState("1");
   const boardCount = useMemo(() => snapshot.board?.length ?? 0, [snapshot.board]);
@@ -250,6 +251,11 @@ function GameShell({
       <section className="game-mobile-shell">
         <header className="game-topbar">
           <div className="game-topbar__row">
+            {roomId === "DEMO" && (
+              <button type="button" className="ghost ghost--mobile" onClick={() => navigate("/")}>
+                ← 返回首页
+              </button>
+            )}
             <span className="hero-status-pill">房间 {snapshot.roomId}</span>
             <span className="hero-status-pill">{phaseLabel}</span>
           </div>
@@ -366,7 +372,6 @@ function HomePage() {
       <section className="hero-card hero-card--mobile">
         <div className="hero-mobile-shell">
           <header className="hero-mobile-top">
-            <div className="hero-status-pill">微信小游戏风格 H5</div>
             <button type="button" className="hero-link" onClick={() => setRulesOpen(true)}>
               玩法说明
             </button>
