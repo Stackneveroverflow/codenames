@@ -9,6 +9,18 @@ const roleOptions: PlayerRole[] = [
   "spectator",
 ];
 
+function roleLabel(role: PlayerRole) {
+  const labels: Record<PlayerRole, string> = {
+    host: "房主",
+    red_spymaster: "红队队长",
+    red_operatives: "红队队员",
+    blue_spymaster: "蓝队队长",
+    blue_operatives: "蓝队队员",
+    spectator: "旁观",
+  };
+  return labels[role];
+}
+
 interface RolePanelProps {
   snapshot: PlayerViewSnapshot;
   onAssignRole: (playerId: string, role: PlayerRole) => void;
@@ -40,12 +52,12 @@ export function RolePanel({ snapshot, onAssignRole }: RolePanelProps) {
               <select value={player.role} onChange={(event) => onAssignRole(player.id, event.target.value as PlayerRole)}>
                 {roleOptions.map((role) => (
                   <option key={role} value={role}>
-                    {role}
+                    {roleLabel(role)}
                   </option>
                 ))}
               </select>
             ) : (
-              <span className="pill">{player.role}</span>
+              <span className="pill">{roleLabel(player.role)}</span>
             )}
           </div>
         ))}
@@ -53,4 +65,3 @@ export function RolePanel({ snapshot, onAssignRole }: RolePanelProps) {
     </section>
   );
 }
-
