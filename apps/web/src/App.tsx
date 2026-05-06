@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 
-import type { ActivityEntry, CardOwner, PlayerRole, PlayerViewSnapshot } from "@codenames/shared";
+import type { ActivityEntry, CardOwner, GameMode, PlayerRole, PlayerViewSnapshot, RoomConfig, TeamSize } from "@codenames/shared";
 import { socketEvents } from "@codenames/shared";
 
 import { ActivityLog } from "./components/ActivityLog";
@@ -12,6 +12,63 @@ import { getSocket } from "./lib/socket";
 const storageKey = "codenames-online:identity";
 
 type StoredIdentity = Record<string, { playerId: string }>;
+
+const nicknameParts = [
+  "灯塔",
+  "纸鹤",
+  "北风",
+  "旧桥",
+  "风铃",
+  "墨砚",
+  "茶盏",
+  "星图",
+  "港湾",
+  "罗盘",
+  "青灯",
+  "木舟",
+  "云梯",
+  "雨巷",
+  "火漆",
+  "银针",
+  "烟岚",
+  "书页",
+  "列车",
+  "海图",
+  "铜钟",
+  "晨雾",
+  "雀鸟",
+  "梅枝",
+  "竹笛",
+  "山岚",
+  "木屋",
+  "舟影",
+  "雨声",
+  "云灯",
+  "白露",
+  "清风",
+  "落霞",
+  "寒星",
+  "北极星",
+  "旧书店",
+  "黑胶片",
+  "老钟表",
+  "小纸船",
+  "木偶戏",
+  "旧邮局",
+  "古戏台",
+];
+
+const gameModeLabels: Record<GameMode, string> = {
+  text: "文字版",
+  image: "图片版",
+};
+
+const teamSizeOptions: TeamSize[] = [2, 3, 4, 5];
+
+function generateNickname() {
+  const candidates = nicknameParts.filter((name) => name.length >= 2 && name.length <= 4);
+  return candidates[Math.floor(Math.random() * candidates.length)] ?? "纸鹤";
+}
 
 type RoomAction =
   | { type: "start"; team: "red" | "blue" }
@@ -96,7 +153,7 @@ function buildDemoSnapshot(): PlayerViewSnapshot {
       { id: "demo-blue", nickname: "蓝队长", role: "blue_spymaster", online: true, joinedAt: new Date().toISOString() },
       { id: "demo-blue-2", nickname: "蓝队员", role: "blue_operatives", online: true, joinedAt: new Date().toISOString() },
     ],
-    config: { locale: "zh-CN", deckMode: "fallback", boardSize: "classic" },
+    config: { locale: "zh-CN", gameMode: "text", deckMode: "fallback", teamSize: 2, boardSize: "classic" },
     board: board,
     turn: null,
     winner: null,
@@ -230,7 +287,7 @@ function GameShell({
   onGuess: (cardId: string) => void;
   onSubmitClue: (clue: string, count: number) => void;
   onEndTurn: () => void;
-  onUpdateConfig: (deckMode: "ai" | "fallback") => void;
+  onUpdateConfig: (config: Partial<RoomConfig>) => void;
 }) {
   const navigate = useNavigate();
   const [clue, setClue] = useState("");
@@ -275,6 +332,8 @@ function GameShell({
           <div className="game-chip-row">
             <div className="turn-pill">{snapshot.turn ? `${snapshot.turn.team === "red" ? "红队" : "蓝队"} · ${snapshot.turn.phase === "clue" ? "出线索" : "猜词"}` : "待开始"}</div>
             <div className="turn-pill turn-pill--soft">{boardCount} 张牌</div>
+            <div className="turn-pill turn-pill--soft">{gameModeLabels[snapshot.config.gameMode]}</div>
+            <div className="turn-pill turn-pill--soft">每队 {snapshot.config.teamSize} 人</div>
             <div className="turn-pill turn-pill--soft">{snapshot.selfRole.includes("spymaster") ? "队长视角" : "队员视角"}</div>
           </div>
         </header>
@@ -314,15 +373,42 @@ function GameShell({
                 <h2>房主操作</h2>
               </div>
             </div>
-            <label className="config-row">
-              <span>AI 发牌</span>
-              <input
-                checked={snapshot.config.deckMode === "ai"}
-                disabled={!isHost}
-                onChange={(event) => onUpdateConfig(event.target.checked ? "ai" : "fallback")}
-                type="checkbox"
-              />
-            </label>
+            <div className="room-config-grid">
+              <label className="config-field">
+                <span>游戏版型</span>
+                <select
+                  disabled={!isHost}
+                  value={snapshot.config.gameMode}
+                  onChange={(event) => onUpdateConfig({ gameMode: event.target.value as GameMode })}
+                >
+                  <option value="text">文字版</option>
+                  <option value="image">图片版</option>
+                </select>
+              </label>
+              <label className="config-field">
+                <span>每队人数</span>
+                <select
+                  disabled={!isHost}
+                  value={snapshot.config.teamSize}
+                  onChange={(event) => onUpdateConfig({ teamSize: Number(event.target.value) as TeamSize })}
+                >
+                  {teamSizeOptions.map((size) => (
+                    <option key={size} value={size}>
+                      {size} 人
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="config-row config-row--switch">
+                <span>AI 发牌</span>
+                <input
+                  checked={snapshot.config.deckMode === "ai"}
+                  disabled={!isHost}
+                  onChange={(event) => onUpdateConfig({ deckMode: event.target.checked ? "ai" : "fallback" })}
+                  type="checkbox"
+                />
+              </label>
+            </div>
             <div className="button-row">
               <button type="button" disabled={!isHost} onClick={onStart}>
                 开始对局
@@ -343,11 +429,13 @@ function GameShell({
 function HomePage() {
   const navigate = useNavigate();
   const socket = getSocket();
-  const [nickname, setNickname] = useState("");
+  const [nickname, setNickname] = useState(() => generateNickname());
   const [joinCode, setJoinCode] = useState("");
   const [error, setError] = useState("");
   const [rulesOpen, setRulesOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const [gameMode, setGameMode] = useState<GameMode>("text");
+  const [teamSize, setTeamSize] = useState<TeamSize>(2);
 
   useEffect(() => {
     function onSnapshot(snapshot: PlayerViewSnapshot) {
@@ -368,77 +456,67 @@ function HomePage() {
   }, [navigate, socket]);
 
   return (
-    <main className="hero-page">
-      <section className="hero-card hero-card--mobile">
-        <div className="hero-mobile-shell">
-          <header className="hero-mobile-top">
-            <button type="button" className="hero-link" onClick={() => setRulesOpen(true)}>
-              玩法说明
-            </button>
-          </header>
+    <main className="hero-page landing-page">
+      <div className="landing-orbit landing-orbit--red" />
+      <div className="landing-orbit landing-orbit--blue" />
+      <section className="landing-shell">
+        <header className="landing-topbar">
+          <button type="button" className="hero-link hero-link--rules" onClick={() => setRulesOpen(true)}>
+            玩法说明
+          </button>
+        </header>
 
-          <section className="hero-banner" aria-hidden="true">
-            <div className="hero-banner__glow hero-banner__glow--red" />
-            <div className="hero-banner__glow hero-banner__glow--blue" />
-            <div className="hero-banner__content">
-              <p className="hero-banner__eyebrow">情报局联机行动</p>
-              <h1>行动代号</h1>
-              <p className="hero-banner__subtitle">中文猜词对抗，开房即玩</p>
-            </div>
-            <div className="hero-banner__board">
-              {["海港", "纸鹤", "灯塔", "星图", "密钥", "列车", "雪线", "罗盘", "黑曜石"].map((word, index) => (
-                <span key={word} className={`hero-banner__tile hero-banner__tile--${index === 8 ? "assassin" : index % 3 === 0 ? "red" : index % 3 === 1 ? "blue" : "neutral"}`}>
-                  {word}
-                </span>
-              ))}
-            </div>
-            <div className="hero-banner__chips">
-              <span className="hero-banner__chip hero-banner__chip--red">红队先手</span>
-              <span className="hero-banner__chip hero-banner__chip--blue">5x5 牌盘</span>
-            </div>
+        <div className="landing-grid">
+          <section className="landing-copy">
+            <p className="eyebrow landing-copy__eyebrow">行动代号</p>
+            <h1 className="landing-title">
+              <span>Codenames</span>
+            </h1>
           </section>
 
-          <section className="hero-brief">
-            <div className="hero-brief__item">
-              <strong>2 队</strong>
-              <span>实时联机</span>
-            </div>
-            <div className="hero-brief__item">
-              <strong>Demo</strong>
-              <span>快速体验</span>
-            </div>
-            <div className="hero-brief__item">
-              <strong>重连</strong>
-              <span>回房继续</span>
-            </div>
-          </section>
-
-          <section className="launch-panel launch-panel--mobile">
+          <section className="launch-panel launch-panel--home">
             <div className="launch-panel__header launch-panel__header--stacked">
               <div>
                 <p className="eyebrow">开始行动</p>
-                <h2>输入昵称后开局</h2>
+                <h2>你的昵称</h2>
               </div>
-              <span className="launch-badge">Lobby</span>
+              <button type="button" className="hero-link hero-link--inline" onClick={() => setNickname(generateNickname())}>
+                换一个
+              </button>
             </div>
-            <div className="launch-field">
-              <label className="field-label" htmlFor="nickname">
-                行动代号
+            <div className="nickname-pill">你的昵称：{nickname}</div>
+            <div className="room-config-grid room-config-grid--home">
+              <label className="config-field">
+                <span>游戏版型</span>
+                <select value={gameMode} onChange={(event) => setGameMode(event.target.value as GameMode)}>
+                  <option value="text">文字版</option>
+                  <option value="image">图片版</option>
+                </select>
               </label>
-              <input id="nickname" placeholder="输入你的昵称" value={nickname} onChange={(event) => setNickname(event.target.value)} />
+              <label className="config-field">
+                <span>每队人数</span>
+                <select value={teamSize} onChange={(event) => setTeamSize(Number(event.target.value) as TeamSize)}>
+                  {teamSizeOptions.map((size) => (
+                    <option key={size} value={size}>
+                      {size} 人
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <button className="primary-action primary-action--large" type="button" onClick={() => socket.emit(socketEvents.roomCreate, { nickname })} disabled={!nickname.trim()}>
-              开始游戏
+            <button
+              className="primary-action primary-action--large"
+              type="button"
+              onClick={() => socket.emit(socketEvents.roomCreate, { nickname, config: { gameMode, teamSize } })}
+              disabled={!nickname.trim()}
+            >
+              创建房间
             </button>
-            <div className="hero-sub-actions">
+            <div className="hero-sub-actions hero-sub-actions--home">
               <button type="button" className="ghost ghost--mobile" onClick={() => setJoinOpen((open) => !open)}>
-                {joinOpen ? "收起房间码" : "加入房间"}
-              </button>
-              <button type="button" className="demo-action" onClick={() => navigate("/demo")}>
-                试玩 Demo
+                {joinOpen ? "收起加入" : "加入房间"}
               </button>
             </div>
-
             {joinOpen && (
               <div className="join-sheet">
                 <div className="launch-field">
@@ -456,14 +534,12 @@ function HomePage() {
                   type="button"
                   className="join-confirm"
                   onClick={() => socket.emit(socketEvents.roomJoin, { roomId: joinCode, nickname })}
-                  disabled={!nickname.trim() || !joinCode.trim()}
+                  disabled={!joinCode.trim()}
                 >
-                  确认加入
+                  加入房间
                 </button>
               </div>
             )}
-
-            <div className="hero-footnote">支持中文线索、队长视角、自动发牌与断线重连。</div>
             {error && <p className="error-text">{error}</p>}
           </section>
         </div>
@@ -472,41 +548,39 @@ function HomePage() {
       {rulesOpen && (
         <section className="rules-overlay" role="dialog" aria-modal="true" aria-label="游戏规则说明">
           <div className="rules-card rules-card--sheet">
-            <div className="panel-header">
-              <div>
-                <p className="eyebrow">图文规则</p>
-                <h2>一分钟看懂怎么玩</h2>
+            <button type="button" className="rules-close" onClick={() => setRulesOpen(false)} aria-label="关闭玩法介绍">
+              ×
+            </button>
+            <div className="rules-poster-header">
+              <p className="eyebrow">游戏规则</p>
+              <h2>30 秒看懂怎么玩</h2>
+              <p className="rules-intro">两队对抗，队长给线索，队员猜词。先找齐自己队伍的词，同时避开对手、中立词和刺客。</p>
+              <div className="rules-poster-rule">
+                <span>目标</span>
+                <strong>先找齐自己队伍的词</strong>
               </div>
-              <button type="button" className="ghost" onClick={() => setRulesOpen(false)}>
-                关闭
-              </button>
             </div>
             <div className="rules-grid">
               <article className="rule-figure">
-                <div className="rule-icon rule-icon--red">A</div>
-                <h3>1. 队长给线索</h3>
-                <p>每回合只说一个词和一个数字，例如“海洋 2”，提示队员去找同阵营的词。</p>
+                <div className="rule-icon rule-icon--red">1</div>
+                <h3>队长给线索</h3>
+                <p>每回合只能说一个词和一个数字，例如“海洋 2”，提示队员去找同阵营的词。</p>
               </article>
               <article className="rule-figure">
-                <div className="rule-icon rule-icon--blue">B</div>
-                <h3>2. 队员依次猜词</h3>
-                <p>可以连续猜到数字上限，也可以提前停手。猜中自己队伍会加分，碰到别的阵营会结束回合。</p>
+                <div className="rule-icon rule-icon--blue">2</div>
+                <h3>队员依次猜词</h3>
+                <p>可以继续猜到数字上限，也可以随时停手。猜中自己队伍可以继续，碰到别队就结束回合。</p>
               </article>
               <article className="rule-figure">
-                <div className="rule-icon rule-icon--neutral">中</div>
-                <h3>3. 中立词会打断节奏</h3>
-                <p>翻到中立词不会直接失败，但会把回合带偏。刺客词一旦翻开，游戏立刻结束。</p>
-              </article>
-              <article className="rule-figure">
-                <div className="rule-icon rule-icon--assassin">X</div>
-                <h3>4. 先找齐目标的一方获胜</h3>
-                <p>谁先把自己的所有情报卡翻完，谁就赢。队长和队员视图不同，只有队长能看到阵营分布。</p>
+                <div className="rule-icon rule-icon--assassin">3</div>
+                <h3>刺客直接结束</h3>
+                <p>翻到中立词会立刻停回合；翻到刺客则游戏立刻结束。先找齐自己队伍全部词的一方获胜。</p>
               </article>
             </div>
-            <div className="rules-strip">
-              <span>队长视图</span>
-              <span>队员视图</span>
-              <span>AI 发牌失败会自动回落本地词库</span>
+            <div className="rules-strip rules-strip--poster">
+              <span>一个词 + 一个数字</span>
+              <span>猜对可继续</span>
+              <span>刺客直接结束游戏</span>
             </div>
           </div>
         </section>
@@ -568,7 +642,7 @@ function RoomPage() {
       onGuess={(cardId) => socket.emit(socketEvents.gameGuessCard, { roomId, cardId })}
       onSubmitClue={(clue, count) => socket.emit(socketEvents.gameSubmitClue, { roomId, clue, count })}
       onEndTurn={() => socket.emit(socketEvents.gameEndTurn, { roomId })}
-      onUpdateConfig={(deckMode) => socket.emit(socketEvents.roomUpdateConfig, { roomId, config: { deckMode } })}
+      onUpdateConfig={(config) => socket.emit(socketEvents.roomUpdateConfig, { roomId, config })}
     />
   );
 }

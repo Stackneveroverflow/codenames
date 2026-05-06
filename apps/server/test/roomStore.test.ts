@@ -18,6 +18,27 @@ describe("RoomStore", () => {
     expect(snapshot.phase).toBe("in_round");
   });
 
+  it("stores the chosen room config at creation", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1", { gameMode: "image", teamSize: 5 });
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+
+    expect(snapshot.config.gameMode).toBe("image");
+    expect(snapshot.config.teamSize).toBe(5);
+  });
+
+  it("rejects team assignments above the configured team size", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1", { teamSize: 2 });
+    const first = store.joinRoom(created.roomId, "乙", "socket-2");
+    const third = store.joinRoom(created.roomId, "丙", "socket-3");
+
+    store.assignRole(created.roomId, created.playerId, created.playerId, "red_spymaster");
+    store.assignRole(created.roomId, created.playerId, first.playerId, "red_operatives");
+
+    expect(() => store.assignRole(created.roomId, created.playerId, third.playerId, "red_operatives")).toThrow("每队最多 2 人");
+  });
+
   it("restores player connection by player id", () => {
     const store = new RoomStore();
     const created = store.createRoom("甲", "socket-1");

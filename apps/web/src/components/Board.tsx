@@ -5,9 +5,9 @@ interface BoardProps {
   onGuess: (cardId: string) => void;
 }
 
-function cardClass(card: VisibleCardState) {
+function cardClass(card: VisibleCardState, gameMode: PlayerViewSnapshot["config"]["gameMode"]) {
   if (!card.revealed) {
-    return "card";
+    return `card card--${gameMode}`;
   }
   return `card card--${card.owner ?? "neutral"}`;
 }
@@ -34,12 +34,16 @@ export function Board({ snapshot, onGuess }: BoardProps) {
         {snapshot.board?.map((card) => (
           <button
             key={card.id}
-            className={cardClass(card)}
+            className={cardClass(card, snapshot.config.gameMode)}
             disabled={card.revealed || !canGuess}
             onClick={() => onGuess(card.id)}
             type="button"
           >
-            <span>{card.content.type === "word" ? card.content.text : card.content.alt}</span>
+            {card.content.type === "word" ? (
+              <span>{card.content.text}</span>
+            ) : (
+              <img className="card__image" src={card.content.imageUrl} alt={card.content.alt} />
+            )}
             {card.owner && <small>{card.owner === "neutral" ? "中立" : card.owner === "assassin" ? "刺客" : `${card.owner}队`}</small>}
           </button>
         ))}
@@ -47,4 +51,3 @@ export function Board({ snapshot, onGuess }: BoardProps) {
     </section>
   );
 }
-

@@ -9,6 +9,12 @@ export type CardOwner = (typeof cardOwners)[number];
 export const teamNames = ["red", "blue"] as const;
 export type TeamName = (typeof teamNames)[number];
 
+export const gameModes = ["text", "image"] as const;
+export type GameMode = (typeof gameModes)[number];
+
+export const teamSizes = [2, 3, 4, 5] as const;
+export type TeamSize = (typeof teamSizes)[number];
+
 export const playerRoles = [
   "host",
   "red_spymaster",
@@ -40,7 +46,9 @@ export interface PlayerState {
 
 export interface RoomConfig {
   locale: "zh-CN";
+  gameMode: GameMode;
   deckMode: "ai" | "fallback";
+  teamSize: TeamSize;
   boardSize: "classic";
 }
 
@@ -130,12 +138,15 @@ export const cardStateSchema = z.object({
 
 export const roomConfigSchema = z.object({
   locale: z.literal("zh-CN"),
+  gameMode: z.enum(gameModes),
   deckMode: z.enum(["ai", "fallback"]),
+  teamSize: z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
   boardSize: z.literal("classic"),
 });
 
 export const createRoomPayloadSchema = z.object({
   nickname: z.string().trim().min(1).max(20),
+  config: roomConfigSchema.pick({ gameMode: true, teamSize: true }).partial().optional(),
 });
 
 export const joinRoomPayloadSchema = z.object({

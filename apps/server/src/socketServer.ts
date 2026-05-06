@@ -80,8 +80,8 @@ export function createAppServer(): AppServer {
 
     socket.on(
       socketEvents.roomCreate,
-      handle(createRoomPayloadSchema, ({ nickname }) => {
-        const created = roomStore.createRoom(nickname, socket.id);
+      handle(createRoomPayloadSchema, ({ nickname, config }) => {
+        const created = roomStore.createRoom(nickname, socket.id, config ?? {});
         socket.data.playerId = created.playerId;
         socket.data.roomId = created.roomId;
         socket.join(created.roomId);

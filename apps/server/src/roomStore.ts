@@ -27,7 +27,9 @@ interface StoredRoom extends Omit<RoomState, "players"> {
 
 const defaultConfig: RoomConfig = {
   locale: "zh-CN",
+  gameMode: "text",
   deckMode: "ai",
+  teamSize: 2,
   boardSize: "classic",
 };
 
@@ -39,7 +41,7 @@ export class RoomStore {
     this.ttlMs = ttlMs;
   }
 
-  createRoom(nickname: string, socketId: string) {
+  createRoom(nickname: string, socketId: string, partialConfig: Partial<RoomConfig> = {}) {
     const roomId = createRoomId();
     const hostId = createPlayerId();
     const timestamp = nowIso();
@@ -47,7 +49,7 @@ export class RoomStore {
       roomId,
       phase: "lobby",
       hostId,
-      config: { ...defaultConfig },
+      config: { ...defaultConfig, ...partialConfig },
       board: null,
       turn: null,
       winner: null,
@@ -138,6 +140,12 @@ export class RoomStore {
   updateConfig(roomId: string, actorId: string, partial: Partial<RoomConfig>) {
     const room = this.requireRoom(roomId);
     this.requireHost(room, actorId);
+    if (typeof partial.teamSize === "number" && partial.teamSize < this.countTeamMembers(room, "red")) {
+      throw new Error("红队人数已超过该上限");
+    }
+    if (typeof partial.teamSize === "number" && partial.teamSize < this.countTeamMembers(room, "blue")) {
+      throw new Error("蓝队人数已超过该上限");
+    }
     room.config = { ...room.config, ...partial };
     this.touch(room);
   }
@@ -149,6 +157,7 @@ export class RoomStore {
     if (!player) {
       throw new Error("玩家不存在");
     }
+    this.ensureRoleFitsTeamSize(room, player.id, role);
     player.role = role;
     this.touch(room, { type: "role_assigned", message: `${player.nickname} 被分配为 ${role}` });
   }
@@ -265,6 +274,36 @@ export class RoomStore {
           message: activity.message,
         },
       ].slice(-30);
+    }
+  }
+
+  private countTeamMembers(room: StoredRoom, team: TeamName) {
+    return room.players.filter((player) =>
+      team === "red"
+        ? player.role === "red_spymaster" || player.role === "red_operatives"
+        : player.role === "blue_spymaster" || player.role === "blue_operatives",
+    ).length;
+  }
+
+  private ensureRoleFitsTeamSize(room: StoredRoom, targetPlayerId: string, nextRole: PlayerRole) {
+    const isTeamRole = nextRole === "red_spymaster" || nextRole === "red_operatives" || nextRole === "blue_spymaster" || nextRole === "blue_operatives";
+    if (!isTeamRole) {
+      return;
+    }
+
+    const nextTeam = nextRole.startsWith("red") ? "red" : "blue";
+    const projectedCount = room.players.filter((player) => {
+      if (player.id === targetPlayerId) {
+        return true;
+      }
+
+      return nextTeam === "red"
+        ? player.role === "red_spymaster" || player.role === "red_operatives"
+        : player.role === "blue_spymaster" || player.role === "blue_operatives";
+    }).length;
+
+    if (projectedCount > room.config.teamSize) {
+      throw new Error(`每队最多 ${room.config.teamSize} 人`);
     }
   }
 
