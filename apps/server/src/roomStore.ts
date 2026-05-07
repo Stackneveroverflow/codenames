@@ -12,6 +12,7 @@ import type {
   TeamName,
   ValidatedDeck,
 } from "@codenames/shared";
+import { findForbiddenClueText } from "@codenames/shared";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -208,6 +209,10 @@ export class RoomStore {
     const actor = this.requirePlayer(room, actorId);
     if (room.turn.activePlayerId !== actor.id || room.teams[room.turn.currentTeam].spymasterId !== actor.id) {
       throw new Error("只有当前队长可以提交线索");
+    }
+    const forbiddenText = findForbiddenClueText(room.board, clueText);
+    if (forbiddenText) {
+      throw new Error(`线索不能包含牌阵文字：${forbiddenText}`);
     }
 
     room.turn = submitClue(room.turn, room.teams, clueText, count);

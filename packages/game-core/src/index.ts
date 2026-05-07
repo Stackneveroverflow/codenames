@@ -41,6 +41,24 @@ export function createOwnerLayout(mode: GameMode, startingTeam: TeamName): CardO
   ];
 }
 
+const cluePhaseDurationMs = 90 * 1000;
+const guessPhaseDurationMs = 180 * 1000;
+
+type TimeInput = Date | string;
+
+function isoFromTime(time: TimeInput): string {
+  return typeof time === "string" ? new Date(time).toISOString() : time.toISOString();
+}
+
+function phaseTimes(phase: TurnState["phase"], now: TimeInput = new Date()) {
+  const phaseStartedAt = isoFromTime(now);
+  const duration = phase === "clue" ? cluePhaseDurationMs : phase === "guess" ? guessPhaseDurationMs : null;
+  return {
+    phaseStartedAt,
+    deadlineAt: duration === null ? null : new Date(new Date(phaseStartedAt).getTime() + duration).toISOString(),
+  };
+}
+
 export function shuffle<T>(items: T[], random = Math.random): T[] {
   const next = [...items];
   for (let index = next.length - 1; index > 0; index -= 1) {
@@ -111,7 +129,7 @@ export function countRemainingByTeam(keyGrid: KeyCellState[], board: PublicCardS
   );
 }
 
-export function createInitialTurn(startingTeam: TeamName, teams: GameTeams, keyGrid: KeyCellState[], board: PublicCardState[]): TurnState {
+export function createInitialTurn(startingTeam: TeamName, teams: GameTeams, keyGrid: KeyCellState[], board: PublicCardState[], now: TimeInput = new Date()): TurnState {
   return {
     currentTeam: startingTeam,
     phase: "clue",
@@ -121,10 +139,11 @@ export function createInitialTurn(startingTeam: TeamName, teams: GameTeams, keyG
     nextOperativeIndex: { red: 0, blue: 0 },
     result: null,
     remainingByTeam: countRemainingByTeam(keyGrid, board),
+    ...phaseTimes("clue", now),
   };
 }
 
-export function submitClue(turn: TurnState, teams: GameTeams, clueText: string, count: number): TurnState {
+export function submitClue(turn: TurnState, teams: GameTeams, clueText: string, count: number, now: TimeInput = new Date()): TurnState {
   if (turn.phase !== "clue" || turn.result) {
     throw new Error("当前不能提交线索");
   }
@@ -143,6 +162,7 @@ export function submitClue(turn: TurnState, teams: GameTeams, clueText: string, 
       ...turn.nextOperativeIndex,
       [turn.currentTeam]: (activeIndex + 1) % operativeIds.length,
     },
+    ...phaseTimes("guess", now),
   };
 }
 
@@ -150,7 +170,7 @@ export function otherTeam(team: TeamName): TeamName {
   return team === "red" ? "blue" : "red";
 }
 
-export function endTurn(turn: TurnState, teams: GameTeams): TurnState {
+export function endTurn(turn: TurnState, teams: GameTeams, now: TimeInput = new Date()): TurnState {
   if (turn.phase === "ended" || turn.result) {
     return turn;
   }
@@ -163,6 +183,7 @@ export function endTurn(turn: TurnState, teams: GameTeams): TurnState {
     clue: null,
     remainingGuesses: 0,
     activePlayerId: teams[nextTeam].spymasterId,
+    ...phaseTimes("clue", now),
   };
 }
 
@@ -172,6 +193,7 @@ export function applyGuess(
   turn: TurnState,
   teams: GameTeams,
   cardId: string,
+  now: TimeInput = new Date(),
 ): { board: PublicCardState[]; turn: TurnState; owner: CardOwner } {
   if (turn.phase !== "guess" || turn.result) {
     throw new Error("当前不能猜牌");
@@ -204,6 +226,7 @@ export function applyGuess(
       phase: "ended",
       activePlayerId: null,
       result: { winner: otherTeam(turn.currentTeam), reason: "assassin" },
+      ...phaseTimes("ended", now),
     };
     return { board: nextBoard, turn: nextTurn, owner };
   }
@@ -215,13 +238,14 @@ export function applyGuess(
         phase: "ended",
         activePlayerId: null,
         result: { winner: owner, reason: "all_revealed" },
+        ...phaseTimes("ended", now),
       };
       return { board: nextBoard, turn: nextTurn, owner };
     }
   }
 
   if (owner !== turn.currentTeam || nextTurn.remainingGuesses === 0) {
-    nextTurn = endTurn(nextTurn, teams);
+    nextTurn = endTurn(nextTurn, teams, now);
   }
 
   return { board: nextBoard, turn: nextTurn, owner };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyGuess, assignTeams, boardCardCount, createDeal, createInitialTurn, createOwnerLayout, submitClue } from "../src/index";
+import { applyGuess, assignTeams, boardCardCount, createDeal, createInitialTurn, createOwnerLayout, endTurn, submitClue } from "../src/index";
 
 const textContents = Array.from({ length: 25 }, (_, index) => ({
   type: "word" as const,
@@ -56,6 +56,11 @@ describe("game-core dealer", () => {
 });
 
 describe("game-core team and turn rules", () => {
+  const teams = {
+    red: { spymasterId: "red-boss", operativeIds: ["red-1"] },
+    blue: { spymasterId: "blue-boss", operativeIds: ["blue-1"] },
+  };
+
   it("assigns balanced teams with one spymaster per team", () => {
     const teams = assignTeams(["p1", "p2", "p3", "p4", "p5"], () => 0);
     const redCount = 1 + teams.red.operativeIds.length;
@@ -135,5 +140,58 @@ describe("game-core team and turn rules", () => {
     const turn = submitClue(createInitialTurn("red", teams, deal.keyGrid, deal.board), teams, "线", 3);
 
     expect(turn.remainingGuesses).toBe(4);
+  });
+
+  it("sets a 90 second deadline for the initial clue phase", () => {
+    const deal = createDeal(textContents, "text", "red", () => 0);
+    const turn = createInitialTurn("red", teams, deal.keyGrid, deal.board, "2026-01-01T00:00:00.000Z");
+
+    expect(turn.phaseStartedAt).toBe("2026-01-01T00:00:00.000Z");
+    expect(turn.deadlineAt).toBe("2026-01-01T00:01:30.000Z");
+  });
+
+  it("sets a 180 second deadline after a clue is submitted", () => {
+    const deal = createDeal(textContents, "text", "red", () => 0);
+    const initial = createInitialTurn("red", teams, deal.keyGrid, deal.board, "2026-01-01T00:00:00.000Z");
+    const turn = submitClue(initial, teams, "线", 2, "2026-01-01T00:02:00.000Z");
+
+    expect(turn.phase).toBe("guess");
+    expect(turn.phaseStartedAt).toBe("2026-01-01T00:02:00.000Z");
+    expect(turn.deadlineAt).toBe("2026-01-01T00:05:00.000Z");
+  });
+
+  it("resets the clue deadline after ending a turn or making a wrong guess", () => {
+    const board = [
+      { id: "card-1", content: textContents[0]! },
+      { id: "card-2", content: textContents[1]! },
+    ];
+    const keyGrid = [
+      { cardId: "card-1", owner: "neutral" as const },
+      { cardId: "card-2", owner: "blue" as const },
+    ];
+    const guessingTurn = submitClue(createInitialTurn("red", teams, keyGrid, board, "2026-01-01T00:00:00.000Z"), teams, "线", 2, "2026-01-01T00:02:00.000Z");
+    const endedTurn = endTurn(guessingTurn, teams, "2026-01-01T00:03:00.000Z");
+    const wrongGuess = applyGuess(board, keyGrid, guessingTurn, teams, "card-1", "2026-01-01T00:04:00.000Z");
+
+    expect(endedTurn.phase).toBe("clue");
+    expect(endedTurn.deadlineAt).toBe("2026-01-01T00:04:30.000Z");
+    expect(wrongGuess.turn.phase).toBe("clue");
+    expect(wrongGuess.turn.deadlineAt).toBe("2026-01-01T00:05:30.000Z");
+  });
+
+  it("clears the active deadline when the game ends", () => {
+    const board = [
+      { id: "card-1", content: textContents[0]! },
+      { id: "card-2", content: textContents[1]! },
+    ];
+    const keyGrid = [
+      { cardId: "card-1", owner: "assassin" as const },
+      { cardId: "card-2", owner: "blue" as const },
+    ];
+    const turn = submitClue(createInitialTurn("red", teams, keyGrid, board), teams, "线", 1);
+    const result = applyGuess(board, keyGrid, turn, teams, "card-1", "2026-01-01T00:05:00.000Z");
+
+    expect(result.turn.phase).toBe("ended");
+    expect(result.turn.deadlineAt).toBeNull();
   });
 });

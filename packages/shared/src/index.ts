@@ -95,6 +95,8 @@ export interface TurnState {
   nextOperativeIndex: Record<TeamName, number>;
   result: TurnResult | null;
   remainingByTeam: Record<TeamName, number>;
+  phaseStartedAt: string;
+  deadlineAt: string | null;
 }
 
 export interface RoomState {
@@ -122,6 +124,26 @@ export interface ValidatedDeck {
   mode: "ai" | "fallback";
   contents: CardContent[];
   model?: string;
+}
+
+export function cardDisplayText(card: PublicCardState): string {
+  return card.content.type === "word" ? card.content.text : card.content.alt;
+}
+
+export function findForbiddenClueText(board: PublicCardState[], clueText: string): string | null {
+  const normalizedClue = clueText.trim().toLocaleLowerCase();
+  if (!normalizedClue) {
+    return null;
+  }
+
+  for (const card of board) {
+    const displayText = cardDisplayText(card).trim();
+    if (displayText && normalizedClue.includes(displayText.toLocaleLowerCase())) {
+      return displayText;
+    }
+  }
+
+  return null;
 }
 
 const wordCardSchema = z.object({

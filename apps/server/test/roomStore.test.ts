@@ -133,6 +133,33 @@ describe("RoomStore dealer flow", () => {
     expect(next.turn?.remainingGuesses).toBe(3);
   });
 
+  it("rejects clues that contain full board words", () => {
+    const store = new RoomStore();
+    const { created } = createFourPlayerRoom(store);
+    store.startGame(created.roomId, created.playerId, createFallbackDeck("text"));
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+    const activeSpymaster = snapshot.turn!.activePlayerId!;
+    const boardText = snapshot.board![0]!.content.type === "word" ? snapshot.board![0]!.content.text : "";
+
+    expect(() => store.submitClue(created.roomId, activeSpymaster, `远方${boardText}`, 2)).toThrow(`线索不能包含牌阵文字：${boardText}`);
+
+    store.submitClue(created.roomId, activeSpymaster, "星系", 2);
+    const next = store.snapshotFor(created.roomId, activeSpymaster);
+    expect(next.turn?.phase).toBe("guess");
+  });
+
+  it("rejects clues that contain full image alt text", () => {
+    const store = new RoomStore();
+    const { created } = createFourPlayerRoom(store);
+    store.updateConfig(created.roomId, created.playerId, { gameMode: "image" });
+    store.startGame(created.roomId, created.playerId, createFallbackDeck("image"));
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+    const activeSpymaster = snapshot.turn!.activePlayerId!;
+    const alt = snapshot.board![0]!.content.type === "image" ? snapshot.board![0]!.content.alt : "";
+
+    expect(() => store.submitClue(created.roomId, activeSpymaster, `${alt}线索`, 1)).toThrow(`线索不能包含牌阵文字：${alt}`);
+  });
+
   it("allows only the active operative to guess and end turns", () => {
     const store = new RoomStore();
     const { created } = createFourPlayerRoom(store);

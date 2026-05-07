@@ -1,5 +1,5 @@
 export const icons: Record<
-  "back" | "deal" | "demo" | "game" | "key" | "refresh" | "risk" | "score" | "users" | "sound" | "magic",
+  "back" | "copy" | "deal" | "demo" | "game" | "key" | "refresh" | "risk" | "score" | "users" | "sound" | "magic",
   unknown
 >;
 
