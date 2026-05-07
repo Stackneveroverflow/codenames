@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const roomPhases = ["lobby", "setup", "in_round", "finished"] as const;
+export const roomPhases = ["lobby", "dealt"] as const;
 export type RoomPhase = (typeof roomPhases)[number];
 
 export const cardOwners = ["red", "blue", "neutral", "assassin"] as const;
@@ -12,7 +12,7 @@ export type TeamName = (typeof teamNames)[number];
 export const gameModes = ["text", "image"] as const;
 export type GameMode = (typeof gameModes)[number];
 
-export const teamSizes = [2, 3, 4, 5] as const;
+export const teamSizes = [4, 5, 6, 7, 8, 9, 10] as const;
 export type TeamSize = (typeof teamSizes)[number];
 
 export const playerRoles = [
@@ -29,11 +29,15 @@ export type CardContent =
   | { type: "word"; text: string }
   | { type: "image"; imageUrl: string; alt: string };
 
-export interface CardState {
+export interface PublicCardState {
   id: string;
   content: CardContent;
+  revealedOwner?: CardOwner;
+}
+
+export interface KeyCellState {
+  cardId: string;
   owner: CardOwner;
-  revealed: boolean;
 }
 
 export interface PlayerState {
@@ -52,24 +56,6 @@ export interface RoomConfig {
   boardSize: "classic";
 }
 
-export interface ClueState {
-  byPlayerId: string;
-  clue: string;
-  count: number;
-  guessesRemaining: number;
-}
-
-export interface TurnState {
-  team: TeamName;
-  clue: ClueState | null;
-  phase: "clue" | "guess";
-}
-
-export interface WinnerState {
-  team: TeamName;
-  reason: "all_found" | "assassin";
-}
-
 export interface ActivityEntry {
   id: string;
   createdAt: string;
@@ -77,14 +63,38 @@ export interface ActivityEntry {
     | "system"
     | "role_assigned"
     | "game_started"
-    | "clue_submitted"
-    | "card_guessed"
-    | "turn_ended"
-    | "game_finished"
     | "player_joined"
     | "player_left"
     | "host_transferred";
   message: string;
+}
+
+export interface TeamAssignment {
+  spymasterId: string;
+  operativeIds: string[];
+}
+
+export type GameTeams = Record<TeamName, TeamAssignment>;
+
+export interface TurnClue {
+  text: string;
+  count: number;
+}
+
+export interface TurnResult {
+  winner: TeamName;
+  reason: "all_revealed" | "assassin";
+}
+
+export interface TurnState {
+  currentTeam: TeamName;
+  phase: "clue" | "guess" | "ended";
+  clue: TurnClue | null;
+  remainingGuesses: number;
+  activePlayerId: string | null;
+  nextOperativeIndex: Record<TeamName, number>;
+  result: TurnResult | null;
+  remainingByTeam: Record<TeamName, number>;
 }
 
 export interface RoomState {
@@ -93,27 +103,24 @@ export interface RoomState {
   hostId: string;
   players: PlayerState[];
   config: RoomConfig;
-  board: CardState[] | null;
+  board: PublicCardState[] | null;
+  keyGrid: KeyCellState[] | null;
+  teams: GameTeams | null;
   turn: TurnState | null;
-  winner: WinnerState | null;
   activityLog: ActivityEntry[];
   createdAt: string;
   updatedAt: string;
 }
 
-export interface VisibleCardState extends Omit<CardState, "owner"> {
-  owner?: CardOwner;
-}
-
-export interface PlayerViewSnapshot extends Omit<RoomState, "board"> {
+export interface PlayerViewSnapshot extends Omit<RoomState, "keyGrid"> {
   selfId: string;
   selfRole: PlayerRole;
-  board: VisibleCardState[] | null;
+  keyGrid?: KeyCellState[] | null;
 }
 
 export interface ValidatedDeck {
   mode: "ai" | "fallback";
-  contents: Extract<CardContent, { type: "word" }>[];
+  contents: CardContent[];
   model?: string;
 }
 
@@ -124,23 +131,35 @@ const wordCardSchema = z.object({
 
 const imageCardSchema = z.object({
   type: z.literal("image"),
-  imageUrl: z.string().url(),
+  imageUrl: z.string().min(1),
   alt: z.string().min(1),
 });
 
 export const cardContentSchema = z.discriminatedUnion("type", [wordCardSchema, imageCardSchema]);
-export const cardStateSchema = z.object({
+export const publicCardStateSchema = z.object({
   id: z.string(),
   content: cardContentSchema,
+  revealedOwner: z.enum(cardOwners).optional(),
+});
+
+export const keyCellStateSchema = z.object({
+  cardId: z.string(),
   owner: z.enum(cardOwners),
-  revealed: z.boolean(),
 });
 
 export const roomConfigSchema = z.object({
   locale: z.literal("zh-CN"),
   gameMode: z.enum(gameModes),
   deckMode: z.enum(["ai", "fallback"]),
-  teamSize: z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
+  teamSize: z.union([
+    z.literal(4),
+    z.literal(5),
+    z.literal(6),
+    z.literal(7),
+    z.literal(8),
+    z.literal(9),
+    z.literal(10),
+  ]),
   boardSize: z.literal("classic"),
 });
 
@@ -174,6 +193,10 @@ export const startGamePayloadSchema = z.object({
   roomId: z.string(),
 });
 
+export const restartGamePayloadSchema = z.object({
+  roomId: z.string(),
+});
+
 export const submitCluePayloadSchema = z.object({
   roomId: z.string(),
   clue: z.string().trim().min(1).max(20),
@@ -189,21 +212,16 @@ export const endTurnPayloadSchema = z.object({
   roomId: z.string(),
 });
 
-export const restartGamePayloadSchema = z.object({
-  roomId: z.string(),
-});
-
 export const socketEvents = {
   roomCreate: "room:create",
   roomJoin: "room:join",
   roomRejoin: "room:rejoin",
   roomUpdateConfig: "room:update_config",
-  roomAssignRole: "room:assign_role",
   gameStart: "game:start",
+  gameRestart: "game:restart",
   gameSubmitClue: "game:submit_clue",
   gameGuessCard: "game:guess_card",
   gameEndTurn: "game:end_turn",
-  gameRestart: "game:restart",
   roomSnapshot: "room:snapshot",
   roomError: "room:error",
   presenceUpdate: "presence:update",
@@ -216,12 +234,11 @@ export type ClientEventName =
   | typeof socketEvents.roomJoin
   | typeof socketEvents.roomRejoin
   | typeof socketEvents.roomUpdateConfig
-  | typeof socketEvents.roomAssignRole
   | typeof socketEvents.gameStart
+  | typeof socketEvents.gameRestart
   | typeof socketEvents.gameSubmitClue
   | typeof socketEvents.gameGuessCard
-  | typeof socketEvents.gameEndTurn
-  | typeof socketEvents.gameRestart;
+  | typeof socketEvents.gameEndTurn;
 
 export type ServerEventName =
   | typeof socketEvents.roomSnapshot

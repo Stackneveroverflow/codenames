@@ -7,21 +7,20 @@ import type { Server as HttpServer } from "node:http";
 import { Server } from "socket.io";
 
 import {
-  assignRolePayloadSchema,
-  endTurnPayloadSchema,
-  guessCardPayloadSchema,
   joinRoomPayloadSchema,
   rejoinRoomPayloadSchema,
   restartGamePayloadSchema,
   socketEvents,
   startGamePayloadSchema,
-  submitCluePayloadSchema,
   updateRoomConfigPayloadSchema,
   createRoomPayloadSchema,
+  submitCluePayloadSchema,
+  guessCardPayloadSchema,
+  endTurnPayloadSchema,
 } from "@codenames/shared";
 
-import { createFallbackDeck, generateAiDeck } from "./deckService";
-import { RoomStore } from "./roomStore";
+import { createFallbackDeck, generateAiDeck } from "./deckService.js";
+import { RoomStore } from "./roomStore.js";
 
 interface AppServer {
   app: Express;
@@ -30,10 +29,23 @@ interface AppServer {
   roomStore: RoomStore;
 }
 
-export function createAppServer(): AppServer {
+export interface HostInfo {
+  port: number;
+  localUrl: string;
+  lanUrls: string[];
+}
+
+export interface AppServerOptions {
+  getHostInfo?: () => HostInfo;
+}
+
+export function createAppServer(options: AppServerOptions = {}): AppServer {
   const app = express();
   app.use(cors());
   app.get("/health", (_req, res) => res.json({ ok: true }));
+  app.get("/host-info", (_req, res) => {
+    res.json(options.getHostInfo?.() ?? null);
+  });
 
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
@@ -123,18 +135,21 @@ export function createAppServer(): AppServer {
     );
 
     socket.on(
-      socketEvents.roomAssignRole,
-      handle(assignRolePayloadSchema, ({ roomId, playerId, role }) => {
-        roomStore.assignRole(roomId, socket.data.playerId, playerId, role);
+      socketEvents.gameStart,
+      handle(startGamePayloadSchema, async ({ roomId }) => {
+        const config = roomStore.getConfig(roomId);
+        const deck = config.deckMode === "ai" ? await generateAiDeck(openai, config.gameMode) : createFallbackDeck(config.gameMode);
+        roomStore.startGame(roomId, socket.data.playerId, deck);
         emitSnapshot(roomId);
       }),
     );
 
     socket.on(
-      socketEvents.gameStart,
-      handle(startGamePayloadSchema, async ({ roomId }) => {
-        const deck = roomStore.getConfig(roomId).deckMode === "ai" ? await generateAiDeck(openai) : createFallbackDeck();
-        roomStore.startGame(roomId, socket.data.playerId, deck);
+      socketEvents.gameRestart,
+      handle(restartGamePayloadSchema, async ({ roomId }) => {
+        const config = roomStore.getConfig(roomId);
+        const deck = config.deckMode === "ai" ? await generateAiDeck(openai, config.gameMode) : createFallbackDeck(config.gameMode);
+        roomStore.restart(roomId, socket.data.playerId, deck);
         emitSnapshot(roomId);
       }),
     );
@@ -159,14 +174,6 @@ export function createAppServer(): AppServer {
       socketEvents.gameEndTurn,
       handle(endTurnPayloadSchema, ({ roomId }) => {
         roomStore.endTurn(roomId, socket.data.playerId);
-        emitSnapshot(roomId);
-      }),
-    );
-
-    socket.on(
-      socketEvents.gameRestart,
-      handle(restartGamePayloadSchema, ({ roomId }) => {
-        roomStore.restart(roomId, socket.data.playerId);
         emitSnapshot(roomId);
       }),
     );
