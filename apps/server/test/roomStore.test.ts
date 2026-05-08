@@ -38,6 +38,30 @@ describe("RoomStore dealer flow", () => {
     expect(snapshot.config.teamSize).toBe(10);
   });
 
+  it("stores host AI config privately without exposing the API key in snapshots", () => {
+    const store = new RoomStore();
+    const created = store.createRoom(
+      "甲",
+      "socket-1",
+      { gameMode: "text", teamSize: 4 },
+      {
+        provider: "openai",
+        apiKey: "sk-private-room-key",
+        textModel: "gpt-5.4-mini",
+        imageModel: "gpt-image-1",
+      },
+    );
+
+    expect(store.getAiConfig(created.roomId)).toEqual({
+      provider: "openai",
+      apiKey: "sk-private-room-key",
+      textModel: "gpt-5.4-mini",
+      imageModel: "gpt-image-1",
+    });
+    expect(JSON.stringify(created.snapshot)).not.toContain("sk-private-room-key");
+    expect(JSON.stringify(store.snapshotFor(created.roomId, created.playerId))).not.toContain("sk-private-room-key");
+  });
+
   it("deals image mode as a 25-card board", () => {
     const store = new RoomStore();
     const created = store.createRoom("甲", "socket-1", { gameMode: "image" });
@@ -139,31 +163,32 @@ describe("RoomStore dealer flow", () => {
     const activeSpymaster = snapshot.turn!.activePlayerId!;
     const otherPlayer = snapshot.players.find((player) => player.id !== activeSpymaster)!;
 
-    expect(() => store.submitClue(created.roomId, otherPlayer.id, "海", 2)).toThrow("只有当前队长可以提交线索");
-    store.submitClue(created.roomId, activeSpymaster, "海", 2);
+    expect(() => store.submitClue(created.roomId, otherPlayer.id, "Ω", 2)).toThrow("只有当前队长可以提交线索");
+    store.submitClue(created.roomId, activeSpymaster, "Ω", 2);
 
     const next = store.snapshotFor(created.roomId, activeSpymaster);
     expect(next.turn?.phase).toBe("guess");
-    expect(next.turn?.clue).toEqual({ text: "海", count: 2 });
+    expect(next.turn?.clue).toEqual({ text: "Ω", count: 2 });
     expect(next.turn?.remainingGuesses).toBe(3);
   });
 
-  it("rejects clues that contain full board words", () => {
+  it("rejects clues that contain any board word character", () => {
     const store = new RoomStore();
     const { created } = createFourPlayerRoom(store);
     store.startGame(created.roomId, created.playerId, createFallbackDeck("text"));
     const snapshot = store.snapshotFor(created.roomId, created.playerId);
     const activeSpymaster = snapshot.turn!.activePlayerId!;
     const boardText = snapshot.board![0]!.content.type === "word" ? snapshot.board![0]!.content.text : "";
+    const boardChar = [...boardText].find((char) => char.trim())!;
 
-    expect(() => store.submitClue(created.roomId, activeSpymaster, `远方${boardText}`, 2)).toThrow(`线索不能包含牌阵文字：${boardText}`);
+    expect(() => store.submitClue(created.roomId, activeSpymaster, `${boardChar}风`, 2)).toThrow(`线索不能包含牌阵中出现的字：${boardChar}，请重新输入`);
 
-    store.submitClue(created.roomId, activeSpymaster, "星系", 2);
+    store.submitClue(created.roomId, activeSpymaster, "Ω", 2);
     const next = store.snapshotFor(created.roomId, activeSpymaster);
     expect(next.turn?.phase).toBe("guess");
   });
 
-  it("rejects clues that contain full image alt text", () => {
+  it("does not reject image clues based on image alt text", () => {
     const store = new RoomStore();
     const { created } = createFourPlayerRoom(store);
     store.updateConfig(created.roomId, created.playerId, { gameMode: "image" });
@@ -172,7 +197,9 @@ describe("RoomStore dealer flow", () => {
     const activeSpymaster = snapshot.turn!.activePlayerId!;
     const alt = snapshot.board![0]!.content.type === "image" ? snapshot.board![0]!.content.alt : "";
 
-    expect(() => store.submitClue(created.roomId, activeSpymaster, `${alt}线索`, 1)).toThrow(`线索不能包含牌阵文字：${alt}`);
+    store.submitClue(created.roomId, activeSpymaster, `${alt}线索`, 1);
+    const next = store.snapshotFor(created.roomId, activeSpymaster);
+    expect(next.turn?.phase).toBe("guess");
   });
 
   it("allows only the active operative to guess and end turns", () => {
@@ -180,7 +207,7 @@ describe("RoomStore dealer flow", () => {
     const { created } = createFourPlayerRoom(store);
     store.startGame(created.roomId, created.playerId, createFallbackDeck("text"));
     const initial = store.snapshotFor(created.roomId, created.playerId);
-    store.submitClue(created.roomId, initial.turn!.activePlayerId!, "海", 1);
+    store.submitClue(created.roomId, initial.turn!.activePlayerId!, "Ω", 1);
     const guessing = store.snapshotFor(created.roomId, created.playerId);
     const activeOperative = guessing.turn!.activePlayerId!;
     const otherPlayer = guessing.players.find((player) => player.id !== activeOperative)!;
@@ -198,7 +225,7 @@ describe("RoomStore dealer flow", () => {
     const { created } = createFourPlayerRoom(store);
     store.startGame(created.roomId, created.playerId, createFallbackDeck("text"));
     const initial = store.snapshotFor(created.roomId, created.playerId);
-    store.submitClue(created.roomId, initial.turn!.activePlayerId!, "海", 1);
+    store.submitClue(created.roomId, initial.turn!.activePlayerId!, "Ω", 1);
     const guessing = store.snapshotFor(created.roomId, created.playerId);
     store.guessCard(created.roomId, guessing.turn!.activePlayerId!, guessing.board![0]!.id);
 

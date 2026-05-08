@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 
-import type { CardOwner, GameMode, KeyCellState, PlayerRole, PlayerState, PlayerViewSnapshot, RoomConfig, TeamName, TeamSize } from "@codenames/shared";
-import { findForbiddenClueText, socketEvents } from "@codenames/shared";
+import type { AiProvider, CardOwner, GameMode, KeyCellState, PlayerRole, PlayerState, PlayerViewSnapshot, RoomConfig, TeamName, TeamSize } from "@codenames/shared";
+import { aiImageModelsByProvider, aiProviderLabels, aiProviders, aiTextModelsByProvider, findForbiddenClueText, socketEvents } from "@codenames/shared";
 
 import { IconButton, icons } from "./components/IconButton";
 import { PhaserBoardEffects } from "./components/PhaserBoardEffects";
@@ -15,6 +15,7 @@ const storageKey = "codenames-dealer:identity";
 type StoredIdentity = Record<string, { playerId: string }>;
 type HomeStep = "home" | "mode" | "headcount" | "join" | "guide";
 type BoardTab = "public" | "key";
+type DeckSource = "fallback" | "ai";
 type HostInfo = { port: number; localUrl: string; lanUrls: string[] };
 
 const nicknameParts = [
@@ -191,6 +192,10 @@ const modeLabels: Record<GameMode, string> = {
   image: "影像情报",
 };
 
+function firstModel(models: readonly string[]) {
+  return models[0] ?? "";
+}
+
 const ownerLabels: Record<CardOwner, string> = {
   red: "红队",
   blue: "蓝队",
@@ -347,7 +352,17 @@ function keyForCard(keyGrid: KeyCellState[] | null | undefined, cardId: string) 
 }
 
 function cardText(card: NonNullable<PlayerViewSnapshot["board"]>[number]) {
-  return card.content.type === "word" ? card.content.text : card.content.alt;
+  if (card.content.type === "word") {
+    return card.content.text;
+  }
+  return card.content.alt || card.id.replace("card-", "图牌 ");
+}
+
+function imageSrc(imageUrl: string) {
+  if (imageUrl.startsWith("/generated-cards/")) {
+    return `${getServerUrl()}${imageUrl}`;
+  }
+  return imageUrl;
 }
 
 function dealSignature(snapshot: PlayerViewSnapshot) {
@@ -400,6 +415,14 @@ function copyTextFallback(text: string) {
   }
 }
 
+async function copyText(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  copyTextFallback(text);
+}
+
 function HomePage() {
   const scopeRef = useRef<HTMLElement | null>(null);
   const navigate = useNavigate();
@@ -410,6 +433,12 @@ function HomePage() {
   const [joinCode, setJoinCode] = useState("");
   const [gameMode, setGameMode] = useState<GameMode>("text");
   const [teamSize, setTeamSize] = useState<TeamSize>(4);
+  const [deckSource, setDeckSource] = useState<DeckSource>("fallback");
+  const [aiConfigOpen, setAiConfigOpen] = useState(false);
+  const [aiProvider, setAiProvider] = useState<AiProvider>("openai");
+  const [aiApiKey, setAiApiKey] = useState("");
+  const [aiTextModel, setAiTextModel] = useState(firstModel(aiTextModelsByProvider.openai));
+  const [aiImageModel, setAiImageModel] = useState(firstModel(aiImageModelsByProvider.openai));
   const [error, setError] = useState("");
   const runAction = useDebouncedAction();
   useGsapEntrance(scopeRef, step);
@@ -421,6 +450,10 @@ function HomePage() {
       setStep("join");
     }
   }, []);
+
+  useEffect(() => {
+    setDeckSource(gameMode === "image" ? "ai" : "fallback");
+  }, [gameMode]);
 
   useEffect(() => {
     function onSnapshot(snapshot: PlayerViewSnapshot) {
@@ -442,12 +475,41 @@ function HomePage() {
   }, [navigate, socket]);
 
   function createRoom() {
-    socket.emit(socketEvents.roomCreate, { nickname, config: { gameMode, teamSize } });
+    const trimmedKey = aiApiKey.trim();
+    if (deckSource === "ai" && !trimmedKey) {
+      setAiConfigOpen(true);
+      setError("大模型牌库需要先配置 API Key");
+      playSound("danger");
+      return;
+    }
+
+    socket.emit(socketEvents.roomCreate, {
+      nickname,
+      config: { gameMode, teamSize },
+      ...(deckSource === "ai" && trimmedKey
+        ? {
+            aiConfig: {
+              provider: aiProvider,
+              apiKey: trimmedKey,
+              textModel: aiTextModel,
+              imageModel: aiImageModel,
+            },
+          }
+        : {}),
+    });
+  }
+
+  function changeAiProvider(provider: AiProvider) {
+    setAiProvider(provider);
+    setAiTextModel(firstModel(aiTextModelsByProvider[provider]));
+    setAiImageModel(firstModel(aiImageModelsByProvider[provider]));
   }
 
   function joinRoom() {
     socket.emit(socketEvents.roomJoin, { roomId: joinCode.trim().toUpperCase(), nickname });
   }
+
+  const aiConfigured = Boolean(aiApiKey.trim());
 
   return (
     <Shell scopeRef={scopeRef}>
@@ -482,8 +544,8 @@ function HomePage() {
             <section className="stack-screen">
               <ScreenTitle title="选择情报载体" />
               <div className="mode-list">
-                <ModeCard active={gameMode === "text"} image="/mode-text.jpg" title="文字情报" note="5 x 5 中文词阵" onClick={() => runAction(() => setGameMode("text"), "score")} />
-                <ModeCard active={gameMode === "image"} image="/mode-image.jpg" title="影像情报" note="5 x 5 图片任务牌" onClick={() => runAction(() => setGameMode("image"), "score")} />
+                <ModeCard active={gameMode === "text"} image="/mode-text.jpg" title="文字情报" note="默认本地中文牌库" onClick={() => runAction(() => setGameMode("text"), "score")} />
+                <ModeCard active={gameMode === "image"} image="/mode-image.jpg" title="影像情报" note="默认大模型图片牌库" onClick={() => runAction(() => setGameMode("image"), "score")} />
               </div>
               <FooterNav back={() => runAction(() => setStep("home"))} next={() => runAction(() => setStep("headcount"))} />
             </section>
@@ -491,8 +553,7 @@ function HomePage() {
 
           {step === "headcount" && (
             <section className="stack-screen">
-              <ScreenTitle title="配置行动小队" note="选择本局参与人数。" />
-              <StatusCard label="当前模式" value={modeLabels[gameMode]} />
+              <ScreenTitle title="配置行动小队" note={`${modeLabels[gameMode]} · 选择人数和牌库`} />
               <div className="headcount-grid" data-animate="panel">
                 {teamSizeOptions.map((size) => (
                   <button key={size} type="button" className={`count-tile${teamSize === size ? " count-tile--active" : ""}`} onClick={() => runAction(() => setTeamSize(size), "score")} data-animate="card">
@@ -500,7 +561,34 @@ function HomePage() {
                   </button>
                 ))}
               </div>
-              <DeckCard />
+              <DeckSourceSelector
+                deckSource={deckSource}
+                provider={aiProvider}
+                configured={aiConfigured}
+                gameMode={gameMode}
+                textModel={aiTextModel}
+                imageModel={aiImageModel}
+                onSourceChange={setDeckSource}
+                onConfigure={() => setAiConfigOpen(true)}
+              />
+              {aiConfigOpen && (
+                <AiConfigModal
+                  provider={aiProvider}
+                  apiKey={aiApiKey}
+                  textModel={aiTextModel}
+                  imageModel={aiImageModel}
+                  onProviderChange={changeAiProvider}
+                  onApiKeyChange={(nextKey) => {
+                    setAiApiKey(nextKey);
+                    if (nextKey.trim()) {
+                      setError("");
+                    }
+                  }}
+                  onTextModelChange={setAiTextModel}
+                  onImageModelChange={setAiImageModel}
+                  onClose={() => setAiConfigOpen(false)}
+                />
+              )}
               {error && <ErrorText message={error} />}
               <FooterNav back={() => runAction(() => setStep("mode"))} next={() => runAction(createRoom, "deal")} nextLabel="创建房间" />
             </section>
@@ -570,39 +658,47 @@ function GuidePage({ onBack }: { onBack: () => void }) {
       </div>
 
       <div className="guide-sections">
-        <article className="guide-block" data-animate="card">
-          <img src="/mode-text.jpg" alt="" />
-          <div>
-            <span>目标</span>
-            <strong>先找完己方所有词牌</strong>
-            <p>红蓝两队轮流行动。每队有一名队长，其余玩家为队员。队长知道每张牌的身份，队员只看公共牌阵。</p>
-          </div>
-        </article>
-        <article className="guide-block" data-animate="card">
-          <div className="guide-mini-grid" aria-hidden="true">
-            <span className="preview-red">灯塔</span>
-            <span>列车</span>
-            <span className="preview-blue">星图</span>
-            <span>港湾</span>
-            <span className="preview-dark">密钥</span>
-            <span>雪线</span>
-          </div>
-          <div>
-            <span>队长</span>
-            <strong>给出线索和数量</strong>
-            <p>线索通常是一个词，数量表示队员可以联想到几张牌。不要说出牌面上的词，也不要暴露关键答案。</p>
-          </div>
-        </article>
-        <article className="guide-block" data-animate="card">
-          <img src="/mode-image.jpg" alt="" />
-          <div>
-            <span>队员</span>
-            <strong>根据线索猜牌</strong>
-            <p>点到己方牌可以继续猜；点到平民或对方牌会结束回合；点到刺客会立刻输掉本局。</p>
-          </div>
-        </article>
+        <GuideRuleBlocks />
       </div>
     </section>
+  );
+}
+
+function GuideRuleBlocks() {
+  return (
+    <>
+      <article className="guide-block" data-animate="card">
+        <img src="/mode-text.jpg" alt="" />
+        <div>
+          <span>目标</span>
+          <strong>先找完己方所有词牌</strong>
+          <p>红蓝两队轮流行动。每队有一名队长，其余玩家为队员。队长知道每张牌的身份，队员只看公共牌阵。</p>
+        </div>
+      </article>
+      <article className="guide-block" data-animate="card">
+        <div className="guide-mini-grid" aria-hidden="true">
+          <span className="preview-red">灯塔</span>
+          <span>列车</span>
+          <span className="preview-blue">星图</span>
+          <span>港湾</span>
+          <span className="preview-dark">密钥</span>
+          <span>雪线</span>
+        </div>
+        <div>
+          <span>队长</span>
+          <strong>给出线索和数量</strong>
+          <p>线索通常是一个词，数量表示队员可以联想到几张牌。不要说出牌面上的词，也不要暴露关键答案。</p>
+        </div>
+      </article>
+      <article className="guide-block" data-animate="card">
+        <img src="/mode-image.jpg" alt="" />
+        <div>
+          <span>队员</span>
+          <strong>根据线索猜牌</strong>
+          <p>点到己方牌可以继续猜；点到平民或对方牌会结束回合；点到刺客会立刻输掉本局。</p>
+        </div>
+      </article>
+    </>
   );
 }
 
@@ -631,15 +727,117 @@ function StatusCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DeckCard() {
+function DeckSourceSelector({
+  deckSource,
+  provider,
+  configured,
+  gameMode,
+  textModel,
+  imageModel,
+  onSourceChange,
+  onConfigure,
+}: {
+  deckSource: DeckSource;
+  provider: AiProvider;
+  configured: boolean;
+  gameMode: GameMode;
+  textModel: string;
+  imageModel: string;
+  onSourceChange: (source: DeckSource) => void;
+  onConfigure: () => void;
+}) {
+  const aiModel = gameMode === "image" ? imageModel : textModel;
+  const aiSummary = configured ? `${aiProviderLabels[provider]} · ${aiModel}` : "待配置 API Key";
+
   return (
-    <div className="deck-card" data-animate="panel">
-      <img src="/deck-cover.jpg" alt="" />
-      <div>
-        <span>牌库状态</span>
-        <strong>本地情报牌库就绪</strong>
-        <p>无 API Key 时仍可直接开局。</p>
-      </div>
+    <section className="deck-source-panel" data-animate="panel">
+      <button type="button" className={`deck-source-option${deckSource === "fallback" ? " deck-source-option--active" : ""}`} onClick={() => onSourceChange("fallback")}>
+        <span>本地牌库</span>
+        <strong>无需 API Key</strong>
+        <small>直接创建，使用内置 25 张牌。</small>
+      </button>
+      <article className={`deck-source-option deck-source-option--ai${deckSource === "ai" ? " deck-source-option--active" : ""}`}>
+        <button type="button" className="deck-source-option__main" onClick={() => onSourceChange("ai")}>
+          <span>大模型牌库</span>
+          <strong>{configured ? "已配置" : "待配置"}</strong>
+          <small>{aiSummary}</small>
+        </button>
+        <IconButton icon={icons.magic} label="配置" className="secondary deck-source-config" onClick={onConfigure} />
+      </article>
+    </section>
+  );
+}
+
+function AiConfigModal({
+  provider,
+  apiKey,
+  textModel,
+  imageModel,
+  onProviderChange,
+  onApiKeyChange,
+  onTextModelChange,
+  onImageModelChange,
+  onClose,
+}: {
+  provider: AiProvider;
+  apiKey: string;
+  textModel: string;
+  imageModel: string;
+  onProviderChange: (provider: AiProvider) => void;
+  onApiKeyChange: (apiKey: string) => void;
+  onTextModelChange: (model: string) => void;
+  onImageModelChange: (model: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="result-overlay modal-overlay" role="dialog" aria-modal="true" aria-labelledby="ai-config-title">
+      <section className="result-modal compact-modal ai-config-modal">
+        <div className="modal-title-row">
+          <div>
+            <p className="eyebrow">Deck Config</p>
+            <h2 id="ai-config-title">大模型牌库</h2>
+          </div>
+          <IconButton icon={icons.back} label="关闭" className="secondary compact-action" onClick={onClose} />
+        </div>
+        <label className="input-field">
+          <span>服务商</span>
+          <select value={provider} onChange={(event) => onProviderChange(event.target.value as AiProvider)}>
+            {aiProviders.map((entry) => (
+              <option key={entry} value={entry}>
+                {aiProviderLabels[entry]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="ai-model-grid">
+          <label className="input-field">
+            <span>文字模型</span>
+            <select value={textModel} onChange={(event) => onTextModelChange(event.target.value)}>
+              {aiTextModelsByProvider[provider].map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="input-field">
+            <span>图片模型</span>
+            <select value={imageModel} onChange={(event) => onImageModelChange(event.target.value)}>
+              {aiImageModelsByProvider[provider].map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label className="input-field">
+          <span>API Key</span>
+          <input type="password" value={apiKey} onChange={(event) => onApiKeyChange(event.target.value)} placeholder="仅保存在当前创建请求中" autoComplete="off" spellCheck={false} />
+        </label>
+        <p className="ai-setup__note">创建房间时会把配置发送给房主服务器生成牌库，失败时不会自动回退。</p>
+        <IconButton icon={icons.magic} label="完成配置" className="primary action-button" onClick={onClose} />
+      </section>
     </div>
   );
 }
@@ -670,40 +868,6 @@ function ScreenTitle({ title, note }: { title: string; note?: string }) {
 function HostPanel({ hostInfo, compact = false }: { hostInfo: HostInfo | null; compact?: boolean }) {
   const lanUrl = hostInfo?.lanUrls[0];
   const displayUrl = lanUrl ?? hostInfo?.localUrl ?? "开发服务器";
-  const canCopy = Boolean(lanUrl ?? hostInfo?.localUrl);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
-
-  useEffect(() => {
-    if (copyState === "idle") {
-      return;
-    }
-    const timer = window.setTimeout(() => setCopyState("idle"), 1600);
-    return () => window.clearTimeout(timer);
-  }, [copyState]);
-
-  async function copyUrl() {
-    if (!canCopy) {
-      return;
-    }
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(displayUrl);
-      } else {
-        copyTextFallback(displayUrl);
-      }
-      setCopyState("copied");
-      playSound("score");
-    } catch {
-      try {
-        copyTextFallback(displayUrl);
-        setCopyState("copied");
-        playSound("score");
-      } catch {
-        setCopyState("error");
-        playSound("danger");
-      }
-    }
-  }
 
   return (
     <section className={compact ? "host-panel host-panel--compact" : "host-panel"} data-animate="panel">
@@ -711,7 +875,6 @@ function HostPanel({ hostInfo, compact = false }: { hostInfo: HostInfo | null; c
         <span>房主服务器</span>
         <div className="host-panel__url">
           <strong>{displayUrl}</strong>
-          <IconButton icon={icons.copy} label={copyState === "copied" ? "已复制" : copyState === "error" ? "失败" : "复制"} className="secondary copy-button" disabled={!canCopy} onClick={copyUrl} />
         </div>
       </div>
     </section>
@@ -759,7 +922,10 @@ function RoomPage() {
   const [snapshot, setSnapshot] = useState<PlayerViewSnapshot | null>(null);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<BoardTab>("public");
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [identityModalDealSignature, setIdentityModalDealSignature] = useState<string | null>(null);
   const autoKeyDealRef = useRef<string | null>(null);
+  const identityModalDealRef = useRef<string | null>(null);
   const publicOverrideDealRef = useRef<string | null>(null);
   const runAction = useDebouncedAction();
   useGsapEntrance(scopeRef, `${snapshot?.phase ?? "loading"}-${tab}`);
@@ -775,6 +941,10 @@ function RoomPage() {
       setSnapshot(next);
       setError("");
       const signature = dealSignature(next);
+      if (next.phase === "dealt" && signature && identityModalDealRef.current !== signature) {
+        identityModalDealRef.current = signature;
+        setIdentityModalDealSignature(signature);
+      }
       if (!next.keyGrid) {
         setTab("public");
         return;
@@ -815,7 +985,7 @@ function RoomPage() {
 
   return (
     <Shell scopeRef={scopeRef}>
-      <RoomHeader snapshot={snapshot} />
+      <RoomHeader snapshot={snapshot} onShowGuide={() => setGuideOpen(true)} />
 
       {snapshot.phase === "lobby" ? (
         <WaitingRoom
@@ -847,21 +1017,32 @@ function RoomPage() {
           onSubmitClue={(clue, count) => runAction(() => socket.emit(socketEvents.gameSubmitClue, { roomId, clue, count }), "score")}
           onGuessCard={(cardId) => runAction(() => socket.emit(socketEvents.gameGuessCard, { roomId, cardId }), "tap")}
           onEndTurn={() => runAction(() => socket.emit(socketEvents.gameEndTurn, { roomId }), "score")}
+          showIdentityModal={Boolean(identityModalDealSignature && identityModalDealSignature === dealSignature(snapshot))}
+          onCloseIdentityModal={() => setIdentityModalDealSignature(null)}
         />
       )}
+      {guideOpen && <GameGuideModal onClose={() => setGuideOpen(false)} />}
     </Shell>
   );
 }
 
-function RoomHeader({ snapshot }: { snapshot: PlayerViewSnapshot }) {
+function RoomHeader({ snapshot, onShowGuide }: { snapshot: PlayerViewSnapshot; onShowGuide: () => void }) {
   if (snapshot.phase === "lobby") {
     return (
       <header className="room-header">
         <div>
           <p className="eyebrow">Room Code</p>
-          <h1>{snapshot.roomId}</h1>
+          <div className="room-code-row">
+            <h1>{snapshot.roomId}</h1>
+            <RoomCodeCopyButton roomId={snapshot.roomId} />
+          </div>
         </div>
-        <span className="status-pill">集结中</span>
+        <div className="room-header-actions">
+          <button type="button" className="signal-chip signal-chip--button" onClick={onShowGuide}>
+            游戏说明
+          </button>
+          <span className="status-pill">集结中</span>
+        </div>
       </header>
     );
   }
@@ -890,6 +1071,56 @@ function RoomHeader({ snapshot }: { snapshot: PlayerViewSnapshot }) {
   );
 }
 
+function RoomCodeCopyButton({ roomId }: { roomId: string }) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+
+  useEffect(() => {
+    if (copyState === "idle") {
+      return;
+    }
+    const timer = window.setTimeout(() => setCopyState("idle"), 1600);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
+
+  async function copyRoomId() {
+    try {
+      await copyText(roomId);
+      setCopyState("copied");
+      playSound("score");
+    } catch {
+      try {
+        copyTextFallback(roomId);
+        setCopyState("copied");
+        playSound("score");
+      } catch {
+        setCopyState("error");
+        playSound("danger");
+      }
+    }
+  }
+
+  return <IconButton icon={icons.copy} label={copyState === "copied" ? "已复制" : copyState === "error" ? "失败" : "复制"} className="secondary copy-button room-code-copy" onClick={copyRoomId} />;
+}
+
+function GameGuideModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="result-overlay modal-overlay" role="dialog" aria-modal="true" aria-labelledby="room-guide-title">
+      <section className="result-modal compact-modal guide-modal">
+        <div className="modal-title-row">
+          <div>
+            <p className="eyebrow">Game Guide</p>
+            <h2 id="room-guide-title">游戏说明</h2>
+          </div>
+          <IconButton icon={icons.back} label="关闭" className="secondary compact-action" onClick={onClose} />
+        </div>
+        <div className="guide-sections guide-sections--modal">
+          <GuideRuleBlocks />
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function WaitingRoom({
   snapshot,
   onlineCount,
@@ -913,6 +1144,7 @@ function WaitingRoom({
   const spectators = snapshot.players.filter((player) => player.spectatorIntent);
   const emptySlots = Math.max(0, snapshot.config.teamSize - participants.length);
   const self = selfPlayer(snapshot);
+  const isGenerating = Boolean(snapshot.deckGeneration?.active);
 
   function renderPlayerSlot(player: PlayerState) {
     return (
@@ -932,6 +1164,12 @@ function WaitingRoom({
         <StatusCard label="旁观者" value={`${spectators.length}`} />
       </div>
       <HostPanel hostInfo={hostInfo} />
+      {snapshot.deckGeneration && (
+        <div className="generation-banner" role="status" data-animate="panel">
+          <span className="pulse-dot" />
+          <strong>{snapshot.deckGeneration.message}</strong>
+        </div>
+      )}
       <IconButton icon={icons.demo} label="打开本机玩家窗口" className="secondary action-button full-width" onClick={() => {
         playSound();
         openDemoWindow(snapshot.roomId);
@@ -947,21 +1185,19 @@ function WaitingRoom({
         ))}
         {spectators.map(renderPlayerSlot)}
       </div>
-      <div className="setting-row">
-        <label className="input-field">
-          <span>人数</span>
-          <select disabled={!isHost} value={snapshot.config.teamSize} onChange={(event) => onUpdateConfig({ teamSize: Number(event.target.value) as TeamSize })}>
-            {teamSizeOptions.map((size) => (
-              <option key={size} value={size}>
-                {size} 人
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className="lobby-controls" data-animate="panel">
+        <span>人数</span>
+        <div className="inline-count-row" aria-label="人数">
+          {teamSizeOptions.map((size) => (
+            <button key={size} type="button" className={`inline-count${snapshot.config.teamSize === size ? " inline-count--active" : ""}`} disabled={!isHost} onClick={() => onUpdateConfig({ teamSize: size })}>
+              {size}
+            </button>
+          ))}
+        </div>
       </div>
       {error && <ErrorText message={error} />}
       {self && <IconButton icon={icons.users} label={self.spectatorIntent ? "加入游戏" : "作为旁观者"} className="secondary action-button full-width spectator-action" onClick={() => onSetSpectator(!self.spectatorIntent)} />}
-      <IconButton icon={icons.deal} label={isHost ? "开始游戏" : "等待房主开始游戏"} className="primary action-button full-width sticky-action" disabled={!isHost} onClick={onStart} />
+      <IconButton icon={icons.deal} label={isGenerating ? "生成中" : isHost ? "开始游戏" : "等待房主开始游戏"} className="primary action-button full-width sticky-action" disabled={!isHost || isGenerating} onClick={onStart} />
     </section>
   );
 }
@@ -976,6 +1212,8 @@ function BoardRoom({
   onSubmitClue,
   onGuessCard,
   onEndTurn,
+  showIdentityModal,
+  onCloseIdentityModal,
 }: {
   snapshot: PlayerViewSnapshot;
   tab: BoardTab;
@@ -986,6 +1224,8 @@ function BoardRoom({
   onSubmitClue: (clue: string, count: number) => void;
   onGuessCard: (cardId: string) => void;
   onEndTurn: () => void;
+  showIdentityModal: boolean;
+  onCloseIdentityModal: () => void;
 }) {
   const [clue, setClue] = useState("");
   const [count, setCount] = useState(1);
@@ -1083,7 +1323,7 @@ function BoardRoom({
               <input className="count-input" type="number" min={0} max={9} value={count} onChange={(event) => setCount(Math.max(0, Math.min(9, Number(event.target.value) || 0)))} disabled={!canSubmitClue} />
               <IconButton icon={icons.key} label="提交" className="primary small-button" disabled={!canSubmitClue || !clue.trim() || Boolean(forbiddenClueText)} onClick={submitCurrentClue} />
             </div>
-            {canSubmitClue && forbiddenClueText && <p className="clue-warning">线索不能包含牌阵文字：{forbiddenClueText}</p>}
+            {canSubmitClue && forbiddenClueText && <p className="clue-warning">线索不能包含牌阵中出现的字：{forbiddenClueText}，请重新输入</p>}
           </div>
         )}
         {turn?.phase === "guess" && (
@@ -1124,8 +1364,8 @@ function BoardRoom({
                 <span>{card.content.text}</span>
               ) : (
                 <>
-                  <img src={card.content.imageUrl} alt={card.content.alt} />
-                  <small>{card.content.alt}</small>
+                  <img src={imageSrc(card.content.imageUrl)} alt={card.content.alt || "图牌"} />
+                  {card.content.alt && <small>{card.content.alt}</small>}
                 </>
               )}
               {card.revealedOwner && <em>{ownerLabels[card.revealedOwner]}</em>}
@@ -1149,8 +1389,70 @@ function BoardRoom({
           }}
         />
       )}
+      {showIdentityModal && <IdentityModal snapshot={snapshot} onClose={onCloseIdentityModal} />}
       {error && <ErrorText message={error} />}
     </section>
+  );
+}
+
+function teamForRole(role: PlayerRole): TeamName | null {
+  if (role.startsWith("red_")) {
+    return "red";
+  }
+  if (role.startsWith("blue_")) {
+    return "blue";
+  }
+  return null;
+}
+
+function playerName(snapshot: PlayerViewSnapshot, playerId: string) {
+  const player = snapshot.players.find((entry) => entry.id === playerId);
+  if (!player) {
+    return "未知玩家";
+  }
+  return `${player.nickname}${player.id === snapshot.selfId ? "（你）" : ""}`;
+}
+
+function IdentityModal({ snapshot, onClose }: { snapshot: PlayerViewSnapshot; onClose: () => void }) {
+  const self = selfPlayer(snapshot);
+  const role = self?.role ?? snapshot.selfRole;
+  const team = teamForRole(role);
+  const isSpectator = role === "spectator";
+  const teams = snapshot.teams;
+
+  return (
+    <div className="result-overlay identity-overlay" role="dialog" aria-modal="true" aria-label="当前玩家身份">
+      <section className={`result-modal identity-modal${team ? ` identity-modal--${team}` : ""}`}>
+        <p className="eyebrow">Your Role</p>
+        <h2>你的身份：{roleLabel(role)}</h2>
+        <p>{isSpectator ? "你是旁观者，可以查看公共牌阵和队伍信息。" : `你在${team ? teamLabels[team] : "本局"}行动。`}</p>
+        {teams && team ? (
+          <div className="identity-team-list">
+            <IdentityRoster title="队长" names={[playerName(snapshot, teams[team].spymasterId)]} />
+            <IdentityRoster title="队员" names={teams[team].operativeIds.map((playerId) => playerName(snapshot, playerId))} />
+          </div>
+        ) : teams ? (
+          <div className="identity-team-list">
+            <IdentityRoster title="红队队长" names={[playerName(snapshot, teams.red.spymasterId)]} />
+            <IdentityRoster title="红队队员" names={teams.red.operativeIds.map((playerId) => playerName(snapshot, playerId))} />
+            <IdentityRoster title="蓝队队长" names={[playerName(snapshot, teams.blue.spymasterId)]} />
+            <IdentityRoster title="蓝队队员" names={teams.blue.operativeIds.map((playerId) => playerName(snapshot, playerId))} />
+          </div>
+        ) : null}
+        <div className="result-actions">
+          <IconButton icon={icons.game} label="知道了" className="primary action-button" onClick={onClose} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function IdentityRoster({ title, names }: { title: string; names: string[] }) {
+  return (
+    <div className="identity-roster">
+      <strong>{title}</strong>
+      <span>{names.length ? names.join("、") : "暂无"}</span>
+    </div>
   );
 }
 

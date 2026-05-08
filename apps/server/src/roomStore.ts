@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { applyGuess, assignTeams, createDeal, createInitialTurn, endTurn, submitClue } from "@codenames/game-core";
 import type {
+  AiDeckConfig,
   CardOwner,
   GameTeams,
   PlayerRole,
@@ -34,6 +35,7 @@ interface StoredPlayer extends PlayerState, PlayerConnection {}
 
 interface StoredRoom extends Omit<RoomState, "players"> {
   players: StoredPlayer[];
+  aiConfig: AiDeckConfig | null;
 }
 
 const defaultConfig: RoomConfig = {
@@ -52,7 +54,7 @@ export class RoomStore {
     this.ttlMs = ttlMs;
   }
 
-  createRoom(nickname: string, socketId: string, partialConfig: Partial<RoomConfig> = {}) {
+  createRoom(nickname: string, socketId: string, partialConfig: Partial<RoomConfig> = {}, aiConfig: AiDeckConfig | null = null) {
     const roomId = this.createAvailableRoomId();
     const hostId = createPlayerId();
     const timestamp = nowIso();
@@ -61,10 +63,12 @@ export class RoomStore {
       phase: "lobby",
       hostId,
       config: { ...defaultConfig, ...partialConfig },
+      aiConfig,
       board: null,
       keyGrid: null,
       teams: null,
       turn: null,
+      deckGeneration: null,
       activityLog: [
         {
           id: randomUUID(),
@@ -198,12 +202,24 @@ export class RoomStore {
     room.keyGrid = deal.keyGrid;
     room.teams = teams;
     room.turn = createInitialTurn(startingTeam, teams, deal.keyGrid, deal.board);
+    room.deckGeneration = null;
     room.config = { ...room.config, deckMode: deck.mode };
     this.touch(room, { type: "game_started", message: `已发牌，${startingTeam === "red" ? "红队" : "蓝队"}多一张关键牌` });
   }
 
   getConfig(roomId: string): RoomConfig {
     return this.requireRoom(roomId).config;
+  }
+
+  getAiConfig(roomId: string): AiDeckConfig | null {
+    return this.requireRoom(roomId).aiConfig;
+  }
+
+  setDeckGeneration(roomId: string, actorId: string, deckGeneration: StoredRoom["deckGeneration"]) {
+    const room = this.requireRoom(roomId);
+    this.requireHost(room, actorId);
+    room.deckGeneration = deckGeneration;
+    this.touch(room);
   }
 
   restart(roomId: string, actorId: string, deck: ValidatedDeck) {
@@ -217,6 +233,7 @@ export class RoomStore {
     room.keyGrid = deal.keyGrid;
     room.teams = teams;
     room.turn = createInitialTurn(startingTeam, teams, deal.keyGrid, deal.board);
+    room.deckGeneration = null;
     room.config = { ...room.config, deckMode: deck.mode };
     this.touch(room, { type: "game_started", message: `已重新发牌，${startingTeam === "red" ? "红队" : "蓝队"}多一张关键牌` });
   }
@@ -229,6 +246,7 @@ export class RoomStore {
     room.keyGrid = null;
     room.teams = null;
     room.turn = null;
+    room.deckGeneration = null;
     this.resetLobbyRoles(room);
     this.touch(room, { type: "system", message: "已返回等候房间" });
   }
@@ -241,7 +259,7 @@ export class RoomStore {
     }
     const forbiddenText = findForbiddenClueText(room.board, clueText);
     if (forbiddenText) {
-      throw new Error(`线索不能包含牌阵文字：${forbiddenText}`);
+      throw new Error(`线索不能包含牌阵中出现的字：${forbiddenText}，请重新输入`);
     }
 
     room.turn = submitClue(room.turn, room.teams, clueText, count);
@@ -291,7 +309,7 @@ export class RoomStore {
 
   private toSnapshot(room: StoredRoom, playerId: string): PlayerViewSnapshot {
     const self = this.requirePlayer(room, playerId);
-    const { players: _players, keyGrid: _keyGrid, ...snapshotRoom } = room;
+    const { players: _players, keyGrid: _keyGrid, aiConfig: _aiConfig, ...snapshotRoom } = room;
     const canSeeKey = self.role === "red_spymaster" || self.role === "blue_spymaster";
     return {
       ...snapshotRoom,
