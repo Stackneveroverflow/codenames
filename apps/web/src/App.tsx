@@ -374,7 +374,7 @@ function teamPlayers(snapshot: PlayerViewSnapshot, team: TeamName) {
 }
 
 function playerMeta(snapshot: PlayerViewSnapshot, player: PlayerState) {
-  const tags = [roleLabel(player.role), player.online ? "在线" : "离线"];
+  const tags = [snapshot.phase === "lobby" ? (player.spectatorIntent ? "旁观队列" : "游戏玩家") : roleLabel(player.role), player.online ? "在线" : "离线"];
   if (snapshot.selfId === player.id) {
     tags.push("你");
   }
@@ -382,6 +382,22 @@ function playerMeta(snapshot: PlayerViewSnapshot, player: PlayerState) {
     tags.push("房主");
   }
   return [...new Set(tags)].join(" · ");
+}
+
+function copyTextFallback(text: string) {
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "");
+  textArea.style.position = "fixed";
+  textArea.style.top = "-1000px";
+  textArea.style.opacity = "0";
+  document.body.appendChild(textArea);
+  textArea.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textArea);
+  if (!copied) {
+    throw new Error("Copy command failed");
+  }
 }
 
 function HomePage() {
@@ -670,12 +686,22 @@ function HostPanel({ hostInfo, compact = false }: { hostInfo: HostInfo | null; c
       return;
     }
     try {
-      await navigator.clipboard.writeText(displayUrl);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(displayUrl);
+      } else {
+        copyTextFallback(displayUrl);
+      }
       setCopyState("copied");
       playSound("score");
     } catch {
-      setCopyState("error");
-      playSound("danger");
+      try {
+        copyTextFallback(displayUrl);
+        setCopyState("copied");
+        playSound("score");
+      } catch {
+        setCopyState("error");
+        playSound("danger");
+      }
     }
   }
 
@@ -800,6 +826,7 @@ function RoomPage() {
           hostInfo={hostInfo}
           onStart={() => runAction(() => socket.emit(socketEvents.gameStart, { roomId }), "deal")}
           onUpdateConfig={(config) => socket.emit(socketEvents.roomUpdateConfig, { roomId, config })}
+          onSetSpectator={(spectator) => runAction(() => socket.emit(socketEvents.roomSetSpectator, { roomId, spectator }), "score")}
         />
       ) : (
         <BoardRoom
@@ -816,7 +843,7 @@ function RoomPage() {
           }
           isHost={isHost}
           error={error}
-          onRestart={() => runAction(() => socket.emit(socketEvents.gameRestart, { roomId }), "deal")}
+          onReturnToLobby={() => runAction(() => socket.emit(socketEvents.gameReturnToLobby, { roomId }), "deal")}
           onSubmitClue={(clue, count) => runAction(() => socket.emit(socketEvents.gameSubmitClue, { roomId, clue, count }), "score")}
           onGuessCard={(cardId) => runAction(() => socket.emit(socketEvents.gameGuessCard, { roomId, cardId }), "tap")}
           onEndTurn={() => runAction(() => socket.emit(socketEvents.gameEndTurn, { roomId }), "score")}
@@ -843,6 +870,7 @@ function RoomHeader({ snapshot }: { snapshot: PlayerViewSnapshot }) {
   const activePrompt = activeSelfPrompt(snapshot);
   const role = player?.role ?? snapshot.selfRole;
   const teamClass = roleTeamClass(role);
+  const badges = [...new Set([roleTeamLabel(role), roleDutyLabel(role)])];
 
   return (
     <header className="room-header room-header--player">
@@ -850,8 +878,11 @@ function RoomHeader({ snapshot }: { snapshot: PlayerViewSnapshot }) {
         <p className="eyebrow">当前身份</p>
         <h1>{player?.nickname ?? "未知玩家"}</h1>
         <div className="identity-badges" aria-label={roleLabel(role)}>
-          <span className={`identity-badge identity-badge--${teamClass}`}>{roleTeamLabel(role)}</span>
-          <span className="identity-badge">{roleDutyLabel(role)}</span>
+          {badges.map((badge, index) => (
+            <span key={badge} className={index === 0 ? `identity-badge identity-badge--${teamClass}` : "identity-badge"}>
+              {badge}
+            </span>
+          ))}
         </div>
       </div>
       <span className={`status-pill${activePrompt ? " status-pill--active" : ""}`}>{activePrompt ?? "已发牌"}</span>
@@ -867,6 +898,7 @@ function WaitingRoom({
   hostInfo,
   onStart,
   onUpdateConfig,
+  onSetSpectator,
 }: {
   snapshot: PlayerViewSnapshot;
   onlineCount: number;
@@ -875,12 +907,29 @@ function WaitingRoom({
   hostInfo: HostInfo | null;
   onStart: () => void;
   onUpdateConfig: (config: Partial<RoomConfig>) => void;
+  onSetSpectator: (spectator: boolean) => void;
 }) {
+  const participants = snapshot.players.filter((player) => !player.spectatorIntent);
+  const spectators = snapshot.players.filter((player) => player.spectatorIntent);
+  const emptySlots = Math.max(0, snapshot.config.teamSize - participants.length);
+  const self = selfPlayer(snapshot);
+
+  function renderPlayerSlot(player: PlayerState) {
+    return (
+      <article key={player.id} className={`player-slot${player.spectatorIntent ? " player-slot--spectator" : ""}`} data-animate="card">
+        <img src="/avatar-agent.jpg" alt="" />
+        <span>{player.nickname}</span>
+        <small>{playerMeta(snapshot, player)}</small>
+      </article>
+    );
+  }
+
   return (
     <section className="lobby-screen">
       <div className="lobby-stats" data-animate="panel">
-        <StatusCard label="在线成员" value={`${onlineCount} / ${snapshot.config.teamSize}`} />
-        <StatusCard label="行动模式" value={modeLabels[snapshot.config.gameMode]} />
+        <StatusCard label="在线成员" value={`${onlineCount}`} />
+        <StatusCard label="游戏玩家" value={`${participants.length} / ${snapshot.config.teamSize}`} />
+        <StatusCard label="旁观者" value={`${spectators.length}`} />
       </div>
       <HostPanel hostInfo={hostInfo} />
       <IconButton icon={icons.demo} label="打开本机玩家窗口" className="secondary action-button full-width" onClick={() => {
@@ -888,25 +937,17 @@ function WaitingRoom({
         openDemoWindow(snapshot.roomId);
       }} />
       <div className="player-grid">
-        {Array.from({ length: snapshot.config.teamSize }, (_, index) => {
-          const player = snapshot.players[index];
-          return (
-            <article key={player?.id ?? index} className={`player-slot${player ? "" : " player-slot--empty"}`} data-animate="card">
-              <img src="/avatar-agent.jpg" alt="" />
-              <span>{player?.nickname ?? "邀请位"}</span>
-              <small>{player ? playerMeta(snapshot, player) : "等待接入"}</small>
-            </article>
-          );
-        })}
+        {participants.map(renderPlayerSlot)}
+        {Array.from({ length: emptySlots }, (_, index) => (
+          <article key={`empty-${index}`} className="player-slot player-slot--empty" data-animate="card">
+            <img src="/avatar-agent.jpg" alt="" />
+            <span>邀请位</span>
+            <small>等待游戏玩家</small>
+          </article>
+        ))}
+        {spectators.map(renderPlayerSlot)}
       </div>
       <div className="setting-row">
-        <label className="input-field">
-          <span>模式</span>
-          <select disabled={!isHost} value={snapshot.config.gameMode} onChange={(event) => onUpdateConfig({ gameMode: event.target.value as GameMode })}>
-            <option value="text">文字情报</option>
-            <option value="image">影像情报</option>
-          </select>
-        </label>
         <label className="input-field">
           <span>人数</span>
           <select disabled={!isHost} value={snapshot.config.teamSize} onChange={(event) => onUpdateConfig({ teamSize: Number(event.target.value) as TeamSize })}>
@@ -918,9 +959,9 @@ function WaitingRoom({
           </select>
         </label>
       </div>
-      <GuideCard items={["所有人到齐后由房主发牌", "开局后系统随机分配红蓝队和队长", "只有队长账号可见关键答案"]} />
       {error && <ErrorText message={error} />}
-      <IconButton icon={icons.deal} label={isHost ? "开始发牌" : "等待房主发牌"} className="primary action-button full-width sticky-action" disabled={!isHost} onClick={onStart} />
+      {self && <IconButton icon={icons.users} label={self.spectatorIntent ? "加入游戏" : "作为旁观者"} className="secondary action-button full-width spectator-action" onClick={() => onSetSpectator(!self.spectatorIntent)} />}
+      <IconButton icon={icons.deal} label={isHost ? "开始游戏" : "等待房主开始游戏"} className="primary action-button full-width sticky-action" disabled={!isHost} onClick={onStart} />
     </section>
   );
 }
@@ -931,7 +972,7 @@ function BoardRoom({
   setTab,
   isHost,
   error,
-  onRestart,
+  onReturnToLobby,
   onSubmitClue,
   onGuessCard,
   onEndTurn,
@@ -941,7 +982,7 @@ function BoardRoom({
   setTab: (tab: BoardTab) => void;
   isHost: boolean;
   error: string;
-  onRestart: () => void;
+  onReturnToLobby: () => void;
   onSubmitClue: (clue: string, count: number) => void;
   onGuessCard: (cardId: string) => void;
   onEndTurn: () => void;
@@ -1095,16 +1136,16 @@ function BoardRoom({
 
       <footer className="board-footer">
         <span>{canSeeKey ? "队长答案仅当前账号可见" : "队员视图不显示答案"}</span>
-        <IconButton icon={icons.refresh} label="再发一局" className="secondary action-button compact-action" disabled={!isHost} onClick={onRestart} />
+        {turn?.result && <IconButton icon={icons.back} label={isHost ? "返回等候房间" : "等待房主返回"} className="secondary action-button compact-action" disabled={!isHost} onClick={onReturnToLobby} />}
       </footer>
       {showResultModal && turn?.result && (
         <ResultModal
           result={turn.result}
           isHost={isHost}
           onClose={() => setDismissedResultSignature(resultSignature)}
-          onRestart={() => {
+          onReturnToLobby={() => {
             setDismissedResultSignature(resultSignature);
-            onRestart();
+            onReturnToLobby();
           }}
         />
       )}
@@ -1113,7 +1154,7 @@ function BoardRoom({
   );
 }
 
-function ResultModal({ result, isHost, onClose, onRestart }: { result: NonNullable<PlayerViewSnapshot["turn"]>["result"]; isHost: boolean; onClose: () => void; onRestart: () => void }) {
+function ResultModal({ result, isHost, onClose, onReturnToLobby }: { result: NonNullable<PlayerViewSnapshot["turn"]>["result"]; isHost: boolean; onClose: () => void; onReturnToLobby: () => void }) {
   if (!result) {
     return null;
   }
@@ -1121,13 +1162,13 @@ function ResultModal({ result, isHost, onClose, onRestart }: { result: NonNullab
   const reasonText = isAssassin ? "对手点中刺客" : "己方词牌全部揭示";
   return (
     <div className="result-overlay" role="dialog" aria-modal="true" aria-label="本局结算">
-      <section className={`result-modal result-modal--${isAssassin ? "assassin" : result.winner}`}>
+      <section className={`result-modal result-modal--${result.winner}`}>
         <p className="eyebrow">Mission Complete</p>
         <h2>{teamLabels[result.winner]}获胜</h2>
         <p>{reasonText}</p>
         <div className="result-actions">
           <IconButton icon={icons.game} label="查看牌阵" className="secondary action-button" onClick={onClose} />
-          {isHost && <IconButton icon={icons.refresh} label="再发一局" className="primary action-button" onClick={onRestart} />}
+          <IconButton icon={icons.back} label={isHost ? "返回等候房间" : "等待房主返回"} className="primary action-button" disabled={!isHost} onClick={onReturnToLobby} />
         </div>
       </section>
     </div>

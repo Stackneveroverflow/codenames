@@ -209,4 +209,57 @@ describe("RoomStore dealer flow", () => {
     expect(snapshot.turn?.remainingByTeam.red).toBeGreaterThanOrEqual(0);
     expect(snapshot.turn?.remainingByTeam.blue).toBeGreaterThanOrEqual(0);
   });
+
+  it("keeps spectators out of team assignment and key-grid access", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1");
+    const second = store.joinRoom(created.roomId, "乙", "socket-2");
+    const third = store.joinRoom(created.roomId, "丙", "socket-3");
+    const fourth = store.joinRoom(created.roomId, "丁", "socket-4");
+    const fifth = store.joinRoom(created.roomId, "戊", "socket-5");
+
+    store.setSpectatorIntent(created.roomId, created.playerId, true);
+    store.setSpectatorIntent(created.roomId, fifth.playerId, false);
+    store.startGame(created.roomId, created.playerId, createFallbackDeck("text"));
+
+    const hostSnapshot = store.snapshotFor(created.roomId, created.playerId);
+    const teamIds = [
+      hostSnapshot.teams!.red.spymasterId,
+      ...hostSnapshot.teams!.red.operativeIds,
+      hostSnapshot.teams!.blue.spymasterId,
+      ...hostSnapshot.teams!.blue.operativeIds,
+    ];
+    expect(teamIds).toEqual(expect.arrayContaining([second.playerId, third.playerId, fourth.playerId, fifth.playerId]));
+    expect(teamIds).not.toContain(created.playerId);
+    expect(hostSnapshot.selfRole).toBe("spectator");
+    expect(hostSnapshot.keyGrid).toBeUndefined();
+  });
+
+  it("requires enough non-spectator players before starting", () => {
+    const store = new RoomStore();
+    const { created, second } = createFourPlayerRoom(store);
+
+    store.setSpectatorIntent(created.roomId, second.playerId, true);
+
+    expect(() => store.startGame(created.roomId, created.playerId, createFallbackDeck("text"))).toThrow("需要 4 名参赛玩家才能开局");
+  });
+
+  it("returns a finished game to the lobby and preserves spectator queue choices", () => {
+    const store = new RoomStore();
+    const { created } = createFourPlayerRoom(store);
+    const spectator = store.joinRoom(created.roomId, "戊", "socket-5");
+
+    store.startGame(created.roomId, created.playerId, createFallbackDeck("text"));
+    store.returnToLobby(created.roomId, created.playerId);
+
+    const hostSnapshot = store.snapshotFor(created.roomId, created.playerId);
+    const spectatorSnapshot = store.snapshotFor(created.roomId, spectator.playerId);
+    expect(hostSnapshot.phase).toBe("lobby");
+    expect(hostSnapshot.board).toBeNull();
+    expect(hostSnapshot.keyGrid).toBeUndefined();
+    expect(hostSnapshot.teams).toBeNull();
+    expect(hostSnapshot.turn).toBeNull();
+    expect(hostSnapshot.players.find((player) => player.id === spectator.playerId)?.spectatorIntent).toBe(true);
+    expect(spectatorSnapshot.selfRole).toBe("spectator");
+  });
 });

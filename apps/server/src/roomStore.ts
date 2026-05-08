@@ -80,6 +80,7 @@ export class RoomStore {
           id: hostId,
           nickname,
           role: "host",
+          spectatorIntent: false,
           online: true,
           joinedAt: timestamp,
           socketId,
@@ -97,10 +98,12 @@ export class RoomStore {
     }
 
     const playerId = createPlayerId();
+    const spectatorIntent = this.participantCount(room) >= room.config.teamSize;
     room.players.push({
       id: playerId,
       nickname,
       role: "spectator",
+      spectatorIntent,
       online: true,
       joinedAt: nowIso(),
       socketId,
@@ -140,8 +143,8 @@ export class RoomStore {
           .sort((left, right) => left.joinedAt.localeCompare(right.joinedAt))[0];
         if (nextHost) {
           room.hostId = nextHost.id;
-          if (nextHost.role === "spectator") {
-            nextHost.role = "host";
+          if (room.phase === "lobby" && !nextHost.spectatorIntent) {
+            this.resetLobbyRoles(room);
           }
           this.touch(room, { type: "host_transferred", message: `房主已转移给 ${nextHost.nickname}` });
         }
@@ -157,6 +160,20 @@ export class RoomStore {
     }
     room.config = { ...room.config, ...partial };
     this.touch(room);
+  }
+
+  setSpectatorIntent(roomId: string, actorId: string, spectatorIntent: boolean) {
+    const room = this.requireRoom(roomId);
+    if (room.phase !== "lobby") {
+      throw new Error("游戏开始后不可切换旁观状态");
+    }
+    const player = this.requirePlayer(room, actorId);
+    player.spectatorIntent = spectatorIntent;
+    this.resetLobbyRoles(room);
+    this.touch(room, {
+      type: "system",
+      message: `${player.nickname} ${spectatorIntent ? "进入旁观者队列" : "加入游戏玩家队列"}`,
+    });
   }
 
   assignRole(roomId: string, actorId: string, targetPlayerId: string, role: PlayerRole) {
@@ -202,6 +219,18 @@ export class RoomStore {
     room.turn = createInitialTurn(startingTeam, teams, deal.keyGrid, deal.board);
     room.config = { ...room.config, deckMode: deck.mode };
     this.touch(room, { type: "game_started", message: `已重新发牌，${startingTeam === "red" ? "红队" : "蓝队"}多一张关键牌` });
+  }
+
+  returnToLobby(roomId: string, actorId: string) {
+    const room = this.requireRoom(roomId);
+    this.requireHost(room, actorId);
+    room.phase = "lobby";
+    room.board = null;
+    room.keyGrid = null;
+    room.teams = null;
+    room.turn = null;
+    this.resetLobbyRoles(room);
+    this.touch(room, { type: "system", message: "已返回等候房间" });
   }
 
   submitClue(roomId: string, actorId: string, clueText: string, count: number) {
@@ -312,6 +341,10 @@ export class RoomStore {
     throw new Error("无法生成房间码，请稍后重试");
   }
 
+  private participantCount(room: StoredRoom): number {
+    return room.players.filter((player) => !player.spectatorIntent).length;
+  }
+
   private requireActiveGame(roomId: string): StoredRoom & { board: NonNullable<StoredRoom["board"]>; keyGrid: NonNullable<StoredRoom["keyGrid"]>; teams: GameTeams; turn: NonNullable<StoredRoom["turn"]> } {
     const room = this.requireRoom(roomId);
     if (room.phase !== "dealt" || !room.board || !room.keyGrid || !room.teams || !room.turn) {
@@ -341,11 +374,11 @@ export class RoomStore {
 
   private assignOnlineTeams(room: StoredRoom): GameTeams {
     const onlinePlayers = room.players
-      .filter((player) => player.online)
+      .filter((player) => player.online && !player.spectatorIntent)
       .sort((left, right) => left.joinedAt.localeCompare(right.joinedAt))
       .slice(0, room.config.teamSize);
     if (onlinePlayers.length < room.config.teamSize) {
-      throw new Error(`需要 ${room.config.teamSize} 名在线玩家才能开局`);
+      throw new Error(`需要 ${room.config.teamSize} 名参赛玩家才能开局`);
     }
 
     const teams = assignTeams(onlinePlayers.map((player) => player.id));
@@ -361,6 +394,12 @@ export class RoomStore {
     }
 
     return teams;
+  }
+
+  private resetLobbyRoles(room: StoredRoom) {
+    for (const player of room.players) {
+      player.role = player.id === room.hostId && !player.spectatorIntent ? "host" : "spectator";
+    }
   }
 
   private ownerLabel(owner: CardOwner) {

@@ -218,13 +218,17 @@ select:disabled {
 }
 
 .lobby-screen {
-  grid-template-rows: auto auto auto 1fr auto auto auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto auto;
   gap: 10px;
 }
 
 .board-screen {
   grid-template-rows: auto auto auto 1fr auto auto;
   gap: 10px;
+}
+
+.room-header + .lobby-screen {
+  height: calc(100% - 88px);
 }
 
 .room-header--player + .board-screen {
@@ -430,13 +434,20 @@ select:disabled {
 .home-actions,
 .footer-nav,
 .setting-row,
-.lobby-stats,
 .tab-row {
   grid-template-columns: 1fr 1fr;
 }
 
+.lobby-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .footer-nav {
   margin-top: auto;
+}
+
+.setting-row > .input-field {
+  grid-column: 1 / -1;
 }
 
 .action-button,
@@ -909,6 +920,11 @@ select {
 
 .player-slot--empty {
   opacity: 0.58;
+}
+
+.player-slot--spectator {
+  border-style: dashed;
+  background: rgba(33, 68, 57, 0.42);
 }
 
 .sticky-action {
@@ -1484,6 +1500,7 @@ select {
   .lobby-screen > .guide-card,
   .lobby-screen > .setting-row,
   .lobby-screen > .error-text,
+  .lobby-screen > .spectator-action,
   .lobby-screen > .sticky-action {
     grid-column: span 2;
   }

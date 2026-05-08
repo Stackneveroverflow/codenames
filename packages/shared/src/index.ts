@@ -44,6 +44,7 @@ export interface PlayerState {
   id: string;
   nickname: string;
   role: PlayerRole;
+  spectatorIntent: boolean;
   online: boolean;
   joinedAt: string;
 }
@@ -205,6 +206,11 @@ export const updateRoomConfigPayloadSchema = z.object({
   config: roomConfigSchema.partial(),
 });
 
+export const setSpectatorPayloadSchema = z.object({
+  roomId: z.string(),
+  spectator: z.boolean(),
+});
+
 export const assignRolePayloadSchema = z.object({
   roomId: z.string(),
   playerId: z.string(),
@@ -216,6 +222,10 @@ export const startGamePayloadSchema = z.object({
 });
 
 export const restartGamePayloadSchema = z.object({
+  roomId: z.string(),
+});
+
+export const returnToLobbyPayloadSchema = z.object({
   roomId: z.string(),
 });
 
@@ -239,8 +249,10 @@ export const socketEvents = {
   roomJoin: "room:join",
   roomRejoin: "room:rejoin",
   roomUpdateConfig: "room:update_config",
+  roomSetSpectator: "room:set_spectator",
   gameStart: "game:start",
   gameRestart: "game:restart",
+  gameReturnToLobby: "game:return_to_lobby",
   gameSubmitClue: "game:submit_clue",
   gameGuessCard: "game:guess_card",
   gameEndTurn: "game:end_turn",
@@ -256,8 +268,10 @@ export type ClientEventName =
   | typeof socketEvents.roomJoin
   | typeof socketEvents.roomRejoin
   | typeof socketEvents.roomUpdateConfig
+  | typeof socketEvents.roomSetSpectator
   | typeof socketEvents.gameStart
   | typeof socketEvents.gameRestart
+  | typeof socketEvents.gameReturnToLobby
   | typeof socketEvents.gameSubmitClue
   | typeof socketEvents.gameGuessCard
   | typeof socketEvents.gameEndTurn;

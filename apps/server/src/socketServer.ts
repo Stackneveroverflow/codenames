@@ -10,6 +10,8 @@ import {
   joinRoomPayloadSchema,
   rejoinRoomPayloadSchema,
   restartGamePayloadSchema,
+  returnToLobbyPayloadSchema,
+  setSpectatorPayloadSchema,
   socketEvents,
   startGamePayloadSchema,
   updateRoomConfigPayloadSchema,
@@ -135,6 +137,14 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
     );
 
     socket.on(
+      socketEvents.roomSetSpectator,
+      handle(setSpectatorPayloadSchema, ({ roomId, spectator }) => {
+        roomStore.setSpectatorIntent(roomId, socket.data.playerId, spectator);
+        emitSnapshot(roomId);
+      }),
+    );
+
+    socket.on(
       socketEvents.gameStart,
       handle(startGamePayloadSchema, async ({ roomId }) => {
         const config = roomStore.getConfig(roomId);
@@ -150,6 +160,14 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
         const config = roomStore.getConfig(roomId);
         const deck = config.deckMode === "ai" ? await generateAiDeck(openai, config.gameMode) : createFallbackDeck(config.gameMode);
         roomStore.restart(roomId, socket.data.playerId, deck);
+        emitSnapshot(roomId);
+      }),
+    );
+
+    socket.on(
+      socketEvents.gameReturnToLobby,
+      handle(returnToLobbyPayloadSchema, ({ roomId }) => {
+        roomStore.returnToLobby(roomId, socket.data.playerId);
         emitSnapshot(roomId);
       }),
     );
