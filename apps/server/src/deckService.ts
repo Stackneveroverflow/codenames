@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import OpenAI from "openai";
-import sharp from "sharp";
 import { z } from "zod";
 
 import type { AiDeckConfig, GameMode, ValidatedDeck } from "@codenames/shared";
@@ -125,6 +124,7 @@ export function createFallbackDeck(mode: GameMode = "text"): ValidatedDeck {
 }
 
 export async function createImageDeckFromGrid(roomId: string, gridImage: Buffer, imageStore: GeneratedImageStore): Promise<ValidatedDeck> {
+  const sharp = await loadSharp();
   const metadata = await sharp(gridImage).metadata();
   if (!metadata.width || !metadata.height) {
     throw new Error("Generated image grid has no dimensions");
@@ -156,6 +156,16 @@ export async function createImageDeckFromGrid(roomId: string, gridImage: Buffer,
     mode: "ai",
     contents,
   };
+}
+
+async function loadSharp() {
+  try {
+    const module = await import("sharp");
+    return module.default;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`图片牌库需要安装 sharp 依赖，请先运行 corepack pnpm install。原始错误：${message}`);
+  }
 }
 
 export async function generateAiDeck(options: GenerateAiDeckOptions = {}): Promise<ValidatedDeck> {
