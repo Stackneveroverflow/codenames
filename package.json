@@ -47,7 +47,6 @@
       "apps/server/dist/**/*",
       "packages/shared/dist/**/*",
       "packages/game-core/dist/**/*",
-      "node_modules/**/*",
       "package.json"
     ],
     "asar": true,

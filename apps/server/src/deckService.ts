@@ -57,6 +57,11 @@ const imageCardAlts = [
   "港口",
   "钟楼",
   "手套",
+  "望远镜",
+  "火柴盒",
+  "留声机",
+  "羽毛笔",
+  "邮票",
 ];
 
 export function createFallbackDeck(mode: GameMode = "text"): ValidatedDeck {

@@ -1,11 +1,12 @@
 export class Howl {
   constructor(options: { src: string[]; volume?: number; html5?: boolean });
-  play(): void;
+  play(): number;
   stop(): void;
 }
 
 export const Howler: {
-  volume: (volume: number) => void;
+  volume(): number;
+  volume(volume: number): void;
 };
 
 declare global {

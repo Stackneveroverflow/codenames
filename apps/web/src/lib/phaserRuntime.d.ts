@@ -8,8 +8,8 @@ interface PhaserRuntime {
   AUTO: number;
   Game: new (config: Record<string, unknown>) => { destroy(removeCanvas?: boolean): void };
   Scale: {
-    RESIZE: string;
-    CENTER_BOTH: string;
+    RESIZE: number;
+    CENTER_BOTH: number;
   };
   Scene: new (key: string) => {
     scale: { width: number; height: number };

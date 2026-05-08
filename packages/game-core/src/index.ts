@@ -16,21 +16,10 @@ export interface DealState {
 }
 
 export function boardCardCount(mode: GameMode): number {
-  return mode === "image" ? 20 : 25;
+  return 25;
 }
 
-export function createOwnerLayout(mode: GameMode, startingTeam: TeamName): CardOwner[] {
-  if (mode === "image") {
-    const redCount = startingTeam === "red" ? 7 : 6;
-    const blueCount = startingTeam === "blue" ? 7 : 6;
-    return [
-      ...Array.from({ length: redCount }, () => "red" as const),
-      ...Array.from({ length: blueCount }, () => "blue" as const),
-      ...Array.from({ length: 6 }, () => "neutral" as const),
-      "assassin",
-    ];
-  }
-
+export function createOwnerLayout(_mode: GameMode, startingTeam: TeamName): CardOwner[] {
   const redCount = startingTeam === "red" ? 9 : 8;
   const blueCount = startingTeam === "blue" ? 9 : 8;
   return [

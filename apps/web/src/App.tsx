@@ -467,7 +467,7 @@ function HomePage() {
               <ScreenTitle title="选择情报载体" />
               <div className="mode-list">
                 <ModeCard active={gameMode === "text"} image="/mode-text.jpg" title="文字情报" note="5 x 5 中文词阵" onClick={() => runAction(() => setGameMode("text"), "score")} />
-                <ModeCard active={gameMode === "image"} image="/mode-image.jpg" title="影像情报" note="5 x 4 图片任务牌" onClick={() => runAction(() => setGameMode("image"), "score")} />
+                <ModeCard active={gameMode === "image"} image="/mode-image.jpg" title="影像情报" note="5 x 5 图片任务牌" onClick={() => runAction(() => setGameMode("image"), "score")} />
               </div>
               <FooterNav back={() => runAction(() => setStep("home"))} next={() => runAction(() => setStep("headcount"))} />
             </section>
@@ -1039,7 +1039,7 @@ function BoardRoom({
           <div className="clue-entry">
             <div className="clue-form">
               <input value={clue} onChange={(event) => setClue(event.target.value)} placeholder={canSubmitClue ? "输入线索" : `等待 ${nicknameFor(snapshot, turn.activePlayerId)} 给线索`} maxLength={20} disabled={!canSubmitClue} />
-              <input className="count-input" type="number" min={0} max={9} value={count} onChange={(event) => setCount(Number(event.target.value))} disabled={!canSubmitClue} />
+              <input className="count-input" type="number" min={0} max={9} value={count} onChange={(event) => setCount(Math.max(0, Math.min(9, Number(event.target.value) || 0)))} disabled={!canSubmitClue} />
               <IconButton icon={icons.key} label="提交" className="primary small-button" disabled={!canSubmitClue || !clue.trim() || Boolean(forbiddenClueText)} onClick={submitCurrentClue} />
             </div>
             {canSubmitClue && forbiddenClueText && <p className="clue-warning">线索不能包含牌阵文字：{forbiddenClueText}</p>}

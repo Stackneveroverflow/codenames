@@ -1,5 +1,9 @@
+interface GsapTween {
+  kill?: () => void;
+}
+
 interface GsapRuntime {
-  from: (targets: string | Element[] | NodeListOf<Element>, vars: Record<string, unknown>) => void;
+  from: (targets: string | Element[] | NodeListOf<Element>, vars: Record<string, unknown>) => GsapTween;
   context: (callback: () => void, scope?: Element | null) => { revert: () => void };
 }
 

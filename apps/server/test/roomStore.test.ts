@@ -38,7 +38,7 @@ describe("RoomStore dealer flow", () => {
     expect(snapshot.config.teamSize).toBe(10);
   });
 
-  it("deals image mode as a 20-card board", () => {
+  it("deals image mode as a 25-card board", () => {
     const store = new RoomStore();
     const created = store.createRoom("甲", "socket-1", { gameMode: "image" });
     store.joinRoom(created.roomId, "乙", "socket-2");
@@ -49,9 +49,24 @@ describe("RoomStore dealer flow", () => {
 
     const snapshot = store.snapshotFor(created.roomId, created.playerId);
     const captain = snapshot.players.find((player) => player.role === "red_spymaster" || player.role === "blue_spymaster")!;
-    expect(snapshot.board).toHaveLength(20);
-    expect(store.snapshotFor(created.roomId, captain.id).keyGrid).toHaveLength(20);
+    expect(snapshot.board).toHaveLength(25);
+    expect(store.snapshotFor(created.roomId, captain.id).keyGrid).toHaveLength(25);
     expect(snapshot.board?.[0]?.content.type).toBe("image");
+  });
+
+  it("does not overwrite rooms when generated room codes collide", () => {
+    const store = new RoomStore();
+    vi.spyOn(Math, "random")
+      .mockReturnValueOnce(0.1)
+      .mockReturnValueOnce(0.1)
+      .mockReturnValueOnce(0.2);
+
+    const first = store.createRoom("甲", "socket-1");
+    const second = store.createRoom("乙", "socket-2");
+
+    expect(second.roomId).not.toBe(first.roomId);
+    expect(store.snapshotFor(first.roomId, first.playerId).players[0]?.nickname).toBe("甲");
+    expect(store.snapshotFor(second.roomId, second.playerId).players[0]?.nickname).toBe("乙");
   });
 
   it("hides the key grid from ordinary players", () => {

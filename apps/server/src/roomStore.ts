@@ -53,7 +53,7 @@ export class RoomStore {
   }
 
   createRoom(nickname: string, socketId: string, partialConfig: Partial<RoomConfig> = {}) {
-    const roomId = createRoomId();
+    const roomId = this.createAvailableRoomId();
     const hostId = createPlayerId();
     const timestamp = nowIso();
     const room: StoredRoom = {
@@ -300,6 +300,16 @@ export class RoomStore {
       throw new Error("房间不存在");
     }
     return room;
+  }
+
+  private createAvailableRoomId(): string {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const roomId = createRoomId();
+      if (!this.rooms.has(roomId)) {
+        return roomId;
+      }
+    }
+    throw new Error("无法生成房间码，请稍后重试");
   }
 
   private requireActiveGame(roomId: string): StoredRoom & { board: NonNullable<StoredRoom["board"]>; keyGrid: NonNullable<StoredRoom["keyGrid"]>; teams: GameTeams; turn: NonNullable<StoredRoom["turn"]> } {

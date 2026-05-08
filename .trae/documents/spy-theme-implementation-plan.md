@@ -42,7 +42,7 @@
 ```bash
 # 背景图 prompt（已验证可生成）
 cd /data/user/skills/byted-seedream-image-generate
-ARK_API_KEY="ark-03e2ff64-adff-4006-a896-f301cc998e04-425c0" \
+ARK_API_KEY="your-key-here" \
 python scripts/seedream_image_generate.py \
   -p "Retro espionage underground room, wooden desk with scattered classified documents, old typewriter, rotary telephone, green desk lamp glow, leather chair, wall map with red and blue pins, coffee cup, cigarette smoke, ink bottles, file folders, warm amber lighting, dark green and mahogany tones, vintage 1940s spy agency atmosphere" \
   -s 1920x1080 --no-watermark --version 4.0

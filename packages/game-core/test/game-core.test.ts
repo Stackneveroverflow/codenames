@@ -7,7 +7,7 @@ const textContents = Array.from({ length: 25 }, (_, index) => ({
   text: `词语${index + 1}`,
 }));
 
-const imageContents = Array.from({ length: 20 }, (_, index) => ({
+const imageContents = Array.from({ length: 25 }, (_, index) => ({
   type: "image" as const,
   imageUrl: `/image-card-${index + 1}.svg`,
   alt: `图片${index + 1}`,
@@ -22,11 +22,11 @@ describe("game-core dealer", () => {
     expect(owners.filter((owner) => owner === "assassin")).toHaveLength(1);
   });
 
-  it("creates a 20-card image key with image distribution", () => {
+  it("creates a 25-card image key with standard distribution", () => {
     const owners = createOwnerLayout("image", "blue");
-    expect(owners.filter((owner) => owner === "red")).toHaveLength(6);
-    expect(owners.filter((owner) => owner === "blue")).toHaveLength(7);
-    expect(owners.filter((owner) => owner === "neutral")).toHaveLength(6);
+    expect(owners.filter((owner) => owner === "red")).toHaveLength(8);
+    expect(owners.filter((owner) => owner === "blue")).toHaveLength(9);
+    expect(owners.filter((owner) => owner === "neutral")).toHaveLength(7);
     expect(owners.filter((owner) => owner === "assassin")).toHaveLength(1);
   });
 
@@ -40,8 +40,8 @@ describe("game-core dealer", () => {
 
   it("deals public image placeholders", () => {
     const deal = createDeal(imageContents, "image", "blue", () => 0.6);
-    expect(deal.board).toHaveLength(20);
-    expect(deal.keyGrid).toHaveLength(20);
+    expect(deal.board).toHaveLength(25);
+    expect(deal.keyGrid).toHaveLength(25);
     expect(deal.board[0]?.content.type).toBe("image");
   });
 
@@ -51,7 +51,7 @@ describe("game-core dealer", () => {
 
   it("reports board sizes by mode", () => {
     expect(boardCardCount("text")).toBe(25);
-    expect(boardCardCount("image")).toBe(20);
+    expect(boardCardCount("image")).toBe(25);
   });
 });
 

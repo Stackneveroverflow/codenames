@@ -1,4 +1,4 @@
-import { createServer } from "node:net";
+import type { Server as HttpServer } from "node:http";
 import path from "node:path";
 
 import { app, BrowserWindow, clipboard, Menu, shell, type MenuItemConstructorOptions } from "electron";
@@ -7,27 +7,12 @@ import express from "express";
 import { createHostInfo } from "../../server/src/network";
 import { createAppServer, type HostInfo } from "../../server/src/socketServer";
 
-const DEFAULT_PORT = Number(process.env.CODENAMES_HOST_PORT ?? 3210);
+const DEFAULT_PORT = parsePort(process.env.CODENAMES_HOST_PORT, 3210);
 const desktopDistDir = __dirname;
 
-async function findOpenPort(startPort: number) {
-  for (let port = startPort; port < startPort + 50; port += 1) {
-    if (await canUsePort(port)) {
-      return port;
-    }
-  }
-  throw new Error(`未找到可用端口：${startPort}-${startPort + 49}`);
-}
-
-function canUsePort(port: number) {
-  return new Promise<boolean>((resolve) => {
-    const server = createServer();
-    server.once("error", () => resolve(false));
-    server.once("listening", () => {
-      server.close(() => resolve(true));
-    });
-    server.listen(port, "0.0.0.0");
-  });
+function parsePort(value: string | undefined, fallback: number) {
+  const parsed = Number(value ?? fallback);
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : fallback;
 }
 
 function resolveWebDist() {
@@ -103,18 +88,55 @@ function installMenu(hostInfo: HostInfo) {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+function isAddressInUse(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && (error as NodeJS.ErrnoException).code === "EADDRINUSE";
+}
+
+function listen(httpServer: HttpServer, port: number) {
+  return new Promise<void>((resolve, reject) => {
+    function onError(error: Error) {
+      httpServer.off("listening", onListening);
+      reject(error);
+    }
+
+    function onListening() {
+      httpServer.off("error", onError);
+      resolve();
+    }
+
+    httpServer.once("error", onError);
+    httpServer.once("listening", onListening);
+    httpServer.listen(port, "0.0.0.0");
+  });
+}
+
+async function startEmbeddedServer(webDist: string) {
+  for (let offset = 0; offset < 50; offset += 1) {
+    const port = DEFAULT_PORT + offset;
+    const hostInfo = createHostInfo(port);
+    const embeddedServer = createAppServer({ getHostInfo: () => hostInfo });
+    attachWebClient(embeddedServer.app, webDist);
+
+    try {
+      await listen(embeddedServer.httpServer, port);
+      return { embeddedServer, hostInfo };
+    } catch (error) {
+      embeddedServer.httpServer.close();
+      if (isAddressInUse(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(`未找到可用端口：${DEFAULT_PORT}-${DEFAULT_PORT + 49}`);
+}
+
 async function main() {
   await app.whenReady();
 
-  const port = await findOpenPort(DEFAULT_PORT);
-  const hostInfo = createHostInfo(port);
   const webDist = resolveWebDist();
-  const embeddedServer = createAppServer({ getHostInfo: () => hostInfo });
-  attachWebClient(embeddedServer.app, webDist);
-
-  await new Promise<void>((resolve) => {
-    embeddedServer.httpServer.listen(port, "0.0.0.0", resolve);
-  });
+  const { hostInfo } = await startEmbeddedServer(webDist);
 
   installMenu(hostInfo);
   createPlayerWindow(hostInfo);
