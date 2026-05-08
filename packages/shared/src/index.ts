@@ -30,8 +30,8 @@ export const aiTextModelsByProvider: Record<AiProvider, readonly string[]> = {
 };
 
 export const aiImageModelsByProvider: Record<AiProvider, readonly string[]> = {
-  openai: ["gpt-image-1"],
-  volcano: ["doubao-seedream-4-0-250828", "doubao-seedream-3-0-t2i-250415"],
+  openai: ["gpt-image-1.5"],
+  volcano: ["doubao-seedream-4-0-250828", "doubao-seedream-4-5-251128", "doubao-seedream-5-0-260128"],
   tongyi: ["wan2.5-t2i-preview", "wan2.2-t2i-plus", "wan2.2-t2i-turbo"],
   hunyuan: ["hunyuan-image-3.0"],
 };

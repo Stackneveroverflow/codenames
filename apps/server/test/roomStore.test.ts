@@ -48,7 +48,7 @@ describe("RoomStore dealer flow", () => {
         provider: "openai",
         apiKey: "sk-private-room-key",
         textModel: "gpt-5.4-mini",
-        imageModel: "gpt-image-1",
+        imageModel: "gpt-image-1.5",
       },
     );
 
@@ -56,7 +56,7 @@ describe("RoomStore dealer flow", () => {
       provider: "openai",
       apiKey: "sk-private-room-key",
       textModel: "gpt-5.4-mini",
-      imageModel: "gpt-image-1",
+      imageModel: "gpt-image-1.5",
     });
     expect(JSON.stringify(created.snapshot)).not.toContain("sk-private-room-key");
     expect(JSON.stringify(store.snapshotFor(created.roomId, created.playerId))).not.toContain("sk-private-room-key");

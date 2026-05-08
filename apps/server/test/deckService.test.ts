@@ -7,7 +7,7 @@ const aiConfig = {
   provider: "openai" as const,
   apiKey: "sk-test",
   textModel: "gpt-5.4-mini",
-  imageModel: "gpt-image-1",
+  imageModel: "gpt-image-1.5",
 };
 
 describe("deckService", () => {

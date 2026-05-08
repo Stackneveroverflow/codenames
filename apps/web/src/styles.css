@@ -225,6 +225,8 @@ select:disabled {
 .board-screen {
   grid-template-rows: auto auto auto 1fr auto auto;
   gap: 10px;
+  align-content: start;
+  overflow: hidden auto;
 }
 
 .room-header + .lobby-screen {
@@ -914,6 +916,10 @@ select:disabled {
   gap: 10px;
 }
 
+.ai-model-grid--single {
+  grid-template-columns: 1fr;
+}
+
 .ai-setup__note {
   margin: 0;
   color: #ffe3a5;
@@ -1271,19 +1277,20 @@ select {
 
 .card-grid,
 .key-grid {
+  width: 100%;
   min-height: 0;
   display: grid;
+  grid-template-rows: repeat(5, minmax(0, 1fr));
   gap: 7px;
-}
-
-.card-grid--text,
-.card-grid--image {
-  grid-auto-rows: 1fr;
+  aspect-ratio: 1 / 1;
+  align-self: start;
 }
 
 .public-card,
 .key-cell {
   position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -1372,7 +1379,8 @@ select {
 .key-wrap {
   min-height: 0;
   display: grid;
-  grid-template-rows: 1fr auto auto;
+  grid-template-rows: auto auto auto;
+  align-content: start;
   gap: 10px;
 }
 
@@ -1523,6 +1531,13 @@ select {
   backdrop-filter: blur(8px);
 }
 
+.identity-overlay {
+  z-index: 6;
+  align-items: center;
+  justify-items: center;
+  overflow: hidden auto;
+}
+
 .result-modal {
   width: min(100%, 420px);
   display: grid;
@@ -1564,16 +1579,21 @@ select {
 }
 
 .result-modal h2 {
+  min-width: 0;
   margin: 0;
   color: var(--paper);
   font-size: clamp(2.2rem, 10vw, 3.4rem);
-  line-height: 0.96;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
 }
 
 .result-modal p {
+  min-width: 0;
   margin: 0;
   color: var(--paper-soft);
   font-weight: 800;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .result-modal--red {
@@ -1593,8 +1613,21 @@ select {
     rgba(12, 10, 9, 0.96);
 }
 
+.identity-modal {
+  width: min(100%, 380px);
+  max-height: calc(100% - 36px);
+  align-self: center;
+  justify-self: center;
+  overflow: hidden auto;
+}
+
+.identity-modal > * {
+  min-width: 0;
+}
+
 .identity-modal h2 {
-  font-size: clamp(1.65rem, 7vw, 2.6rem);
+  font-size: clamp(1.55rem, 7vw, 2.35rem);
+  line-height: 1.12;
 }
 
 .identity-modal--red {
@@ -1611,6 +1644,7 @@ select {
 }
 
 .identity-roster {
+  min-width: 0;
   display: grid;
   gap: 5px;
   padding: 10px;
@@ -1625,10 +1659,12 @@ select {
 }
 
 .identity-roster span {
+  min-width: 0;
   color: var(--paper);
   font-size: 0.92rem;
   font-weight: 800;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .result-actions {
@@ -1677,8 +1713,9 @@ select {
 
 @media (min-width: 900px) {
   .app-shell {
-    width: min(94vw, 980px);
-    height: min(850px, calc(100dvh - 48px));
+    width: min(96vw, 1180px);
+    height: min(920px, calc(100dvh - 32px));
+    min-height: 0;
   }
 
   .home-screen {
@@ -1723,8 +1760,13 @@ select {
   }
 
   .board-screen {
-    grid-template-columns: 1fr 280px;
+    grid-template-columns: minmax(0, 1fr) minmax(290px, 320px);
     grid-template-rows: auto auto auto 1fr auto;
+    overflow: hidden;
+  }
+
+  .room-header--player + .board-screen {
+    height: calc(100% - 122px);
   }
 
   .feedback-banner,
@@ -1734,12 +1776,26 @@ select {
 
   .card-grid,
   .key-wrap {
+    justify-self: center;
     grid-row: 3 / span 3;
+  }
+
+  .card-grid {
+    width: min(100%, calc(100dvh - 296px));
+  }
+
+  .key-wrap {
+    width: min(100%, calc(100dvh - 364px));
+  }
+
+  .key-grid {
+    width: 100%;
   }
 
   .turn-panel {
     grid-column: 2;
     grid-row: 3;
+    align-self: start;
   }
 
   .board-footer {

@@ -192,8 +192,21 @@ const modeLabels: Record<GameMode, string> = {
   image: "影像情报",
 };
 
+const missingApiKeyError = "大模型牌库需要先配置 API Key";
+
+const imageModelLabels: Record<string, string> = {
+  "gpt-image-1.5": "ImageGen2",
+  "doubao-seedream-4-0-250828": "Seedream 4",
+  "doubao-seedream-4-5-251128": "Seedream 4.5",
+  "doubao-seedream-5-0-260128": "Seedream 5.0 lite",
+};
+
 function firstModel(models: readonly string[]) {
   return models[0] ?? "";
+}
+
+function modelDisplayName(model: string) {
+  return imageModelLabels[model] ?? model;
 }
 
 const ownerLabels: Record<CardOwner, string> = {
@@ -453,7 +466,14 @@ function HomePage() {
 
   useEffect(() => {
     setDeckSource(gameMode === "image" ? "ai" : "fallback");
+    setError((current) => (current === missingApiKeyError ? "" : current));
   }, [gameMode]);
+
+  useEffect(() => {
+    if (deckSource === "fallback") {
+      setError((current) => (current === missingApiKeyError ? "" : current));
+    }
+  }, [deckSource]);
 
   useEffect(() => {
     function onSnapshot(snapshot: PlayerViewSnapshot) {
@@ -478,7 +498,7 @@ function HomePage() {
     const trimmedKey = aiApiKey.trim();
     if (deckSource === "ai" && !trimmedKey) {
       setAiConfigOpen(true);
-      setError("大模型牌库需要先配置 API Key");
+      setError(missingApiKeyError);
       playSound("danger");
       return;
     }
@@ -573,6 +593,7 @@ function HomePage() {
               />
               {aiConfigOpen && (
                 <AiConfigModal
+                  gameMode={gameMode}
                   provider={aiProvider}
                   apiKey={aiApiKey}
                   textModel={aiTextModel}
@@ -581,7 +602,7 @@ function HomePage() {
                   onApiKeyChange={(nextKey) => {
                     setAiApiKey(nextKey);
                     if (nextKey.trim()) {
-                      setError("");
+                      setError((current) => (current === missingApiKeyError ? "" : current));
                     }
                   }}
                   onTextModelChange={setAiTextModel}
@@ -747,7 +768,7 @@ function DeckSourceSelector({
   onConfigure: () => void;
 }) {
   const aiModel = gameMode === "image" ? imageModel : textModel;
-  const aiSummary = configured ? `${aiProviderLabels[provider]} · ${aiModel}` : "待配置 API Key";
+  const aiSummary = configured ? `${aiProviderLabels[provider]} · ${modelDisplayName(aiModel)}` : "待配置 API Key";
 
   return (
     <section className="deck-source-panel" data-animate="panel">
@@ -769,6 +790,7 @@ function DeckSourceSelector({
 }
 
 function AiConfigModal({
+  gameMode,
   provider,
   apiKey,
   textModel,
@@ -779,6 +801,7 @@ function AiConfigModal({
   onImageModelChange,
   onClose,
 }: {
+  gameMode: GameMode;
   provider: AiProvider;
   apiKey: string;
   textModel: string;
@@ -809,27 +832,30 @@ function AiConfigModal({
             ))}
           </select>
         </label>
-        <div className="ai-model-grid">
-          <label className="input-field">
-            <span>文字模型</span>
-            <select value={textModel} onChange={(event) => onTextModelChange(event.target.value)}>
-              {aiTextModelsByProvider[provider].map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="input-field">
-            <span>图片模型</span>
-            <select value={imageModel} onChange={(event) => onImageModelChange(event.target.value)}>
-              {aiImageModelsByProvider[provider].map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div className="ai-model-grid ai-model-grid--single">
+          {gameMode === "text" ? (
+            <label className="input-field">
+              <span>语言模型</span>
+              <select value={textModel} onChange={(event) => onTextModelChange(event.target.value)}>
+                {aiTextModelsByProvider[provider].map((model) => (
+                  <option key={model} value={model}>
+                    {modelDisplayName(model)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label className="input-field">
+              <span>生图模型</span>
+              <select value={imageModel} onChange={(event) => onImageModelChange(event.target.value)}>
+                {aiImageModelsByProvider[provider].map((model) => (
+                  <option key={model} value={model}>
+                    {modelDisplayName(model)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         <label className="input-field">
           <span>API Key</span>
@@ -1017,11 +1043,10 @@ function RoomPage() {
           onSubmitClue={(clue, count) => runAction(() => socket.emit(socketEvents.gameSubmitClue, { roomId, clue, count }), "score")}
           onGuessCard={(cardId) => runAction(() => socket.emit(socketEvents.gameGuessCard, { roomId, cardId }), "tap")}
           onEndTurn={() => runAction(() => socket.emit(socketEvents.gameEndTurn, { roomId }), "score")}
-          showIdentityModal={Boolean(identityModalDealSignature && identityModalDealSignature === dealSignature(snapshot))}
-          onCloseIdentityModal={() => setIdentityModalDealSignature(null)}
         />
       )}
       {guideOpen && <GameGuideModal onClose={() => setGuideOpen(false)} />}
+      {identityModalDealSignature && identityModalDealSignature === dealSignature(snapshot) && <IdentityModal snapshot={snapshot} onClose={() => setIdentityModalDealSignature(null)} />}
     </Shell>
   );
 }
@@ -1212,8 +1237,6 @@ function BoardRoom({
   onSubmitClue,
   onGuessCard,
   onEndTurn,
-  showIdentityModal,
-  onCloseIdentityModal,
 }: {
   snapshot: PlayerViewSnapshot;
   tab: BoardTab;
@@ -1224,8 +1247,6 @@ function BoardRoom({
   onSubmitClue: (clue: string, count: number) => void;
   onGuessCard: (cardId: string) => void;
   onEndTurn: () => void;
-  showIdentityModal: boolean;
-  onCloseIdentityModal: () => void;
 }) {
   const [clue, setClue] = useState("");
   const [count, setCount] = useState(1);
@@ -1389,7 +1410,6 @@ function BoardRoom({
           }}
         />
       )}
-      {showIdentityModal && <IdentityModal snapshot={snapshot} onClose={onCloseIdentityModal} />}
       {error && <ErrorText message={error} />}
     </section>
   );
@@ -1421,8 +1441,8 @@ function IdentityModal({ snapshot, onClose }: { snapshot: PlayerViewSnapshot; on
   const teams = snapshot.teams;
 
   return (
-    <div className="result-overlay identity-overlay" role="dialog" aria-modal="true" aria-label="当前玩家身份">
-      <section className={`result-modal identity-modal${team ? ` identity-modal--${team}` : ""}`}>
+    <div className="result-overlay identity-overlay" role="dialog" aria-modal="true" aria-label="当前玩家身份" onClick={onClose}>
+      <section className={`result-modal identity-modal${team ? ` identity-modal--${team}` : ""}`} onClick={(event) => event.stopPropagation()}>
         <p className="eyebrow">Your Role</p>
         <h2>你的身份：{roleLabel(role)}</h2>
         <p>{isSpectator ? "你是旁观者，可以查看公共牌阵和队伍信息。" : `你在${team ? teamLabels[team] : "本局"}行动。`}</p>
