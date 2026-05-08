@@ -1,7 +1,18 @@
 import { randomUUID } from "node:crypto";
 
-import { createBoard, createInitialTurn, endTurn, guessCard, submitClue } from "@codenames/game-core";
-import type { PlayerRole, PlayerState, PlayerViewSnapshot, RoomConfig, RoomState, TeamName, ValidatedDeck } from "@codenames/shared";
+import { applyGuess, assignTeams, createDeal, createInitialTurn, endTurn, submitClue } from "@codenames/game-core";
+import type {
+  CardOwner,
+  GameTeams,
+  PlayerRole,
+  PlayerState,
+  PlayerViewSnapshot,
+  RoomConfig,
+  RoomState,
+  TeamName,
+  ValidatedDeck,
+} from "@codenames/shared";
+import { findForbiddenClueText } from "@codenames/shared";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -27,7 +38,9 @@ interface StoredRoom extends Omit<RoomState, "players"> {
 
 const defaultConfig: RoomConfig = {
   locale: "zh-CN",
-  deckMode: "ai",
+  gameMode: "text",
+  deckMode: "fallback",
+  teamSize: 4,
   boardSize: "classic",
 };
 
@@ -39,24 +52,25 @@ export class RoomStore {
     this.ttlMs = ttlMs;
   }
 
-  createRoom(nickname: string, socketId: string) {
-    const roomId = createRoomId();
+  createRoom(nickname: string, socketId: string, partialConfig: Partial<RoomConfig> = {}) {
+    const roomId = this.createAvailableRoomId();
     const hostId = createPlayerId();
     const timestamp = nowIso();
     const room: StoredRoom = {
       roomId,
       phase: "lobby",
       hostId,
-      config: { ...defaultConfig },
+      config: { ...defaultConfig, ...partialConfig },
       board: null,
+      keyGrid: null,
+      teams: null,
       turn: null,
-      winner: null,
       activityLog: [
         {
           id: randomUUID(),
           createdAt: timestamp,
           type: "player_joined",
-          message: `${nickname} 创建了房间`,
+          message: `${nickname} 创建了发牌房间`,
         },
       ],
       createdAt: timestamp,
@@ -138,6 +152,9 @@ export class RoomStore {
   updateConfig(roomId: string, actorId: string, partial: Partial<RoomConfig>) {
     const room = this.requireRoom(roomId);
     this.requireHost(room, actorId);
+    if (room.phase !== "lobby") {
+      throw new Error("发牌后不可修改设置，请先重新开局");
+    }
     room.config = { ...room.config, ...partial };
     this.touch(room);
   }
@@ -150,67 +167,80 @@ export class RoomStore {
       throw new Error("玩家不存在");
     }
     player.role = role;
-    this.touch(room, { type: "role_assigned", message: `${player.nickname} 被分配为 ${role}` });
+    this.touch(room, { type: "role_assigned", message: `${player.nickname} 被设为 ${role}` });
   }
 
   startGame(roomId: string, actorId: string, deck: ValidatedDeck) {
     const room = this.requireRoom(roomId);
     this.requireHost(room, actorId);
-    const starter = Math.random() > 0.5 ? "red" : "blue";
-    room.phase = "in_round";
-    room.board = createBoard(deck.contents, starter);
-    room.turn = createInitialTurn(starter);
-    room.winner = null;
-    this.touch(room, { type: "game_started", message: `对局开始，${starter === "red" ? "红队" : "蓝队"}先手` });
+    const startingTeam: TeamName = Math.random() > 0.5 ? "red" : "blue";
+    const teams = this.assignOnlineTeams(room);
+    const deal = createDeal(deck.contents, room.config.gameMode, startingTeam);
+    room.phase = "dealt";
+    room.board = deal.board;
+    room.keyGrid = deal.keyGrid;
+    room.teams = teams;
+    room.turn = createInitialTurn(startingTeam, teams, deal.keyGrid, deal.board);
+    room.config = { ...room.config, deckMode: deck.mode };
+    this.touch(room, { type: "game_started", message: `已发牌，${startingTeam === "red" ? "红队" : "蓝队"}多一张关键牌` });
   }
 
   getConfig(roomId: string): RoomConfig {
     return this.requireRoom(roomId).config;
   }
 
-  submitClue(roomId: string, actorId: string, clue: string, count: number) {
-    const room = this.requireInRound(roomId);
-    const player = this.requirePlayer(room, actorId);
-    this.requireCurrentSpymaster(room, player.id, player.role);
-    room.turn = submitClue(room.turn!, actorId, clue, count);
-    this.touch(room, { type: "clue_submitted", message: `${player.nickname} 提交线索：${clue} ${count}` });
+  restart(roomId: string, actorId: string, deck: ValidatedDeck) {
+    const room = this.requireRoom(roomId);
+    this.requireHost(room, actorId);
+    const startingTeam: TeamName = Math.random() > 0.5 ? "red" : "blue";
+    const teams = this.assignOnlineTeams(room);
+    const deal = createDeal(deck.contents, room.config.gameMode, startingTeam);
+    room.phase = "dealt";
+    room.board = deal.board;
+    room.keyGrid = deal.keyGrid;
+    room.teams = teams;
+    room.turn = createInitialTurn(startingTeam, teams, deal.keyGrid, deal.board);
+    room.config = { ...room.config, deckMode: deck.mode };
+    this.touch(room, { type: "game_started", message: `已重新发牌，${startingTeam === "red" ? "红队" : "蓝队"}多一张关键牌` });
+  }
+
+  submitClue(roomId: string, actorId: string, clueText: string, count: number) {
+    const room = this.requireActiveGame(roomId);
+    const actor = this.requirePlayer(room, actorId);
+    if (room.turn.activePlayerId !== actor.id || room.teams[room.turn.currentTeam].spymasterId !== actor.id) {
+      throw new Error("只有当前队长可以提交线索");
+    }
+    const forbiddenText = findForbiddenClueText(room.board, clueText);
+    if (forbiddenText) {
+      throw new Error(`线索不能包含牌阵文字：${forbiddenText}`);
+    }
+
+    room.turn = submitClue(room.turn, room.teams, clueText, count);
+    this.touch(room, { type: "system", message: `${actor.nickname} 给出线索「${clueText}」 ${count}` });
   }
 
   guessCard(roomId: string, actorId: string, cardId: string) {
-    const room = this.requireInRound(roomId);
-    const player = this.requirePlayer(room, actorId);
-    this.requireCurrentOperative(room, player.id, player.role);
-    const result = guessCard({ board: room.board!, turn: room.turn!, winner: room.winner }, cardId);
-    room.board = room.board!.map((card) => (card.id === result.card.id ? result.card : card));
-    room.turn = result.nextTurn;
-    room.winner = result.winner ?? room.winner;
-    if (result.winner) {
-      room.phase = "finished";
-      this.touch(room, { type: "game_finished", message: `${player.nickname} 触发胜利：${result.winner.team}` });
-      return;
+    const room = this.requireActiveGame(roomId);
+    const actor = this.requirePlayer(room, actorId);
+    if (room.turn.activePlayerId !== actor.id || !room.teams[room.turn.currentTeam].operativeIds.includes(actor.id)) {
+      throw new Error("只有当前猜词队员可以猜牌");
     }
-    this.touch(room, {
-      type: "card_guessed",
-      message: `${player.nickname} 翻开了 ${this.getCardLabel(result.card.owner)}`,
-    });
+
+    const result = applyGuess(room.board, room.keyGrid, room.turn, room.teams, cardId);
+    room.board = result.board;
+    room.turn = result.turn;
+    this.touch(room, { type: "system", message: `${actor.nickname} 揭示了 ${this.ownerLabel(result.owner)}` });
   }
 
   endTurn(roomId: string, actorId: string) {
-    const room = this.requireInRound(roomId);
-    const player = this.requirePlayer(room, actorId);
-    this.requireCurrentOperative(room, player.id, player.role);
-    room.turn = endTurn(room.turn!);
-    this.touch(room, { type: "turn_ended", message: `${player.nickname} 结束了本回合` });
-  }
+    const room = this.requireActiveGame(roomId);
+    const actor = this.requirePlayer(room, actorId);
+    if (room.turn.activePlayerId !== actor.id || !room.teams[room.turn.currentTeam].operativeIds.includes(actor.id)) {
+      throw new Error("只有当前猜词队员可以结束回合");
+    }
 
-  restart(roomId: string, actorId: string) {
-    const room = this.requireRoom(roomId);
-    this.requireHost(room, actorId);
-    room.phase = "lobby";
-    room.board = null;
-    room.turn = null;
-    room.winner = null;
-    this.touch(room, { type: "system", message: "房主重置了对局" });
+    room.turn = endTurn(room.turn, room.teams);
+    this.touch(room, { type: "system", message: `${actor.nickname} 结束了回合` });
   }
 
   getRoomBySocket(socketId: string): StoredRoom | undefined {
@@ -232,18 +262,14 @@ export class RoomStore {
 
   private toSnapshot(room: StoredRoom, playerId: string): PlayerViewSnapshot {
     const self = this.requirePlayer(room, playerId);
-    const revealOwners = self.role === "red_spymaster" || self.role === "blue_spymaster";
+    const { players: _players, keyGrid: _keyGrid, ...snapshotRoom } = room;
+    const canSeeKey = self.role === "red_spymaster" || self.role === "blue_spymaster";
     return {
-      ...room,
+      ...snapshotRoom,
       selfId: self.id,
       selfRole: self.role,
       players: room.players.map(({ socketId: _socketId, ...player }) => player),
-      board: room.board?.map((card) => ({
-        id: card.id,
-        content: card.content,
-        revealed: card.revealed,
-        ...(card.revealed || revealOwners ? { owner: card.owner } : {}),
-      })) ?? null,
+      ...(canSeeKey ? { keyGrid: room.keyGrid } : {}),
     };
   }
 
@@ -276,12 +302,27 @@ export class RoomStore {
     return room;
   }
 
-  private requireInRound(roomId: string): StoredRoom {
-    const room = this.requireRoom(roomId);
-    if (!room.board || !room.turn) {
-      throw new Error("对局尚未开始");
+  private createAvailableRoomId(): string {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const roomId = createRoomId();
+      if (!this.rooms.has(roomId)) {
+        return roomId;
+      }
     }
-    return room;
+    throw new Error("无法生成房间码，请稍后重试");
+  }
+
+  private requireActiveGame(roomId: string): StoredRoom & { board: NonNullable<StoredRoom["board"]>; keyGrid: NonNullable<StoredRoom["keyGrid"]>; teams: GameTeams; turn: NonNullable<StoredRoom["turn"]> } {
+    const room = this.requireRoom(roomId);
+    if (room.phase !== "dealt" || !room.board || !room.keyGrid || !room.teams || !room.turn) {
+      throw new Error("游戏尚未开始");
+    }
+    return room as StoredRoom & {
+      board: NonNullable<StoredRoom["board"]>;
+      keyGrid: NonNullable<StoredRoom["keyGrid"]>;
+      teams: GameTeams;
+      turn: NonNullable<StoredRoom["turn"]>;
+    };
   }
 
   private requirePlayer(room: StoredRoom, playerId: string): StoredPlayer {
@@ -298,30 +339,37 @@ export class RoomStore {
     }
   }
 
-  private requireCurrentSpymaster(room: StoredRoom, actorId: string, role: PlayerRole) {
-    const expectedRole = room.turn?.team === "red" ? "red_spymaster" : "blue_spymaster";
-    if (actorId !== this.requirePlayer(room, actorId).id || role !== expectedRole || room.turn?.phase !== "clue") {
-      throw new Error("当前不是你的队长回合");
+  private assignOnlineTeams(room: StoredRoom): GameTeams {
+    const onlinePlayers = room.players
+      .filter((player) => player.online)
+      .sort((left, right) => left.joinedAt.localeCompare(right.joinedAt))
+      .slice(0, room.config.teamSize);
+    if (onlinePlayers.length < room.config.teamSize) {
+      throw new Error(`需要 ${room.config.teamSize} 名在线玩家才能开局`);
     }
+
+    const teams = assignTeams(onlinePlayers.map((player) => player.id));
+    const roleByPlayer = new Map<string, PlayerRole>([
+      [teams.red.spymasterId, "red_spymaster"],
+      [teams.blue.spymasterId, "blue_spymaster"],
+      ...teams.red.operativeIds.map((id) => [id, "red_operatives"] as const),
+      ...teams.blue.operativeIds.map((id) => [id, "blue_operatives"] as const),
+    ]);
+
+    for (const player of room.players) {
+      player.role = roleByPlayer.get(player.id) ?? "spectator";
+    }
+
+    return teams;
   }
 
-  private requireCurrentOperative(room: StoredRoom, actorId: string, role: PlayerRole) {
-    const expectedRole = room.turn?.team === "red" ? "red_operatives" : "blue_operatives";
-    if (actorId !== this.requirePlayer(room, actorId).id || role !== expectedRole || room.turn?.phase !== "guess") {
-      throw new Error("当前不是你的队员回合");
-    }
-  }
-
-  private getCardLabel(owner: TeamName | "neutral" | "assassin"): string {
-    switch (owner) {
-      case "red":
-        return "红队牌";
-      case "blue":
-        return "蓝队牌";
-      case "neutral":
-        return "中立牌";
-      case "assassin":
-        return "刺客牌";
-    }
+  private ownerLabel(owner: CardOwner) {
+    const labels: Record<CardOwner, string> = {
+      red: "红队牌",
+      blue: "蓝队牌",
+      neutral: "平民牌",
+      assassin: "刺客牌",
+    };
+    return labels[owner];
   }
 }

@@ -6,7 +6,7 @@ coverage
 .DS_Store
 playwright-report
 test-results
+release
 pnpm-lock.yaml
 .env
 .env.local
-

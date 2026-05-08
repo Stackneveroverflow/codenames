@@ -1,28 +1,51 @@
-import type { CardContent, CardOwner, CardState, ClueState, TeamName, TurnState, WinnerState } from "@codenames/shared";
+import type {
+  CardContent,
+  CardOwner,
+  GameMode,
+  GameTeams,
+  KeyCellState,
+  PublicCardState,
+  TeamName,
+  TurnState,
+} from "@codenames/shared";
 
-export interface RoundState {
-  board: CardState[];
-  turn: TurnState;
-  winner: WinnerState | null;
+export interface DealState {
+  board: PublicCardState[];
+  keyGrid: KeyCellState[];
+  startingTeam: TeamName;
 }
 
-export interface GuessOutcome {
-  card: CardState;
-  nextTurn: TurnState;
-  winner: WinnerState | null;
-  shouldEndTurn: boolean;
+export function boardCardCount(mode: GameMode): number {
+  return 25;
 }
 
-export function createClassicOwnerLayout(startingTeam: TeamName): CardOwner[] {
-  const friendlyCount = startingTeam === "red" ? 9 : 8;
-  const enemyCount = startingTeam === "blue" ? 9 : 8;
-  const owners: CardOwner[] = [
-    ...Array.from({ length: friendlyCount }, () => "red" as const),
-    ...Array.from({ length: enemyCount }, () => "blue" as const),
+export function createOwnerLayout(_mode: GameMode, startingTeam: TeamName): CardOwner[] {
+  const redCount = startingTeam === "red" ? 9 : 8;
+  const blueCount = startingTeam === "blue" ? 9 : 8;
+  return [
+    ...Array.from({ length: redCount }, () => "red" as const),
+    ...Array.from({ length: blueCount }, () => "blue" as const),
     ...Array.from({ length: 7 }, () => "neutral" as const),
     "assassin",
   ];
-  return owners;
+}
+
+const cluePhaseDurationMs = 90 * 1000;
+const guessPhaseDurationMs = 180 * 1000;
+
+type TimeInput = Date | string;
+
+function isoFromTime(time: TimeInput): string {
+  return typeof time === "string" ? new Date(time).toISOString() : time.toISOString();
+}
+
+function phaseTimes(phase: TurnState["phase"], now: TimeInput = new Date()) {
+  const phaseStartedAt = isoFromTime(now);
+  const duration = phase === "clue" ? cluePhaseDurationMs : phase === "guess" ? guessPhaseDurationMs : null;
+  return {
+    phaseStartedAt,
+    deadlineAt: duration === null ? null : new Date(new Date(phaseStartedAt).getTime() + duration).toISOString(),
+  };
 }
 
 export function shuffle<T>(items: T[], random = Math.random): T[] {
@@ -34,141 +57,185 @@ export function shuffle<T>(items: T[], random = Math.random): T[] {
   return next;
 }
 
-export function createBoard(contents: CardContent[], startingTeam: TeamName, random = Math.random): CardState[] {
-  if (contents.length !== 25) {
-    throw new Error("Classic board requires 25 cards");
+export function createDeal(contents: CardContent[], mode: GameMode, startingTeam: TeamName, random = Math.random): DealState {
+  const expectedCount = boardCardCount(mode);
+  if (contents.length !== expectedCount) {
+    throw new Error(`${mode === "image" ? "Image" : "Text"} board requires ${expectedCount} cards`);
   }
 
-  const owners = shuffle(createClassicOwnerLayout(startingTeam), random);
-  return contents.map((content, index) => ({
+  const owners = shuffle(createOwnerLayout(mode, startingTeam), random);
+  const board = contents.map((content, index) => ({
     id: `card-${index + 1}`,
     content,
-    owner: owners[index]!,
-    revealed: false,
   }));
-}
 
-export function createInitialTurn(team: TeamName): TurnState {
   return {
-    team,
-    clue: null,
-    phase: "clue",
+    board,
+    keyGrid: board.map((card, index) => ({
+      cardId: card.id,
+      owner: owners[index]!,
+    })),
+    startingTeam,
   };
 }
 
-export function submitClue(turn: TurnState, byPlayerId: string, clue: string, count: number): TurnState {
-  if (turn.phase !== "clue") {
-    throw new Error("Clue phase already completed");
+export function assignTeams(playerIds: string[], random = Math.random): GameTeams {
+  if (playerIds.length < 4) {
+    throw new Error("至少需要 4 名在线玩家才能开局");
   }
 
-  const clueState: ClueState = {
-    byPlayerId,
-    clue,
-    count,
-    guessesRemaining: count + 1,
+  const shuffled = shuffle(playerIds, random);
+  const redSize = Math.ceil(shuffled.length / 2);
+  const redPlayers = shuffled.slice(0, redSize);
+  const bluePlayers = shuffled.slice(redSize);
+
+  if (redPlayers.length < 2 || bluePlayers.length < 2) {
+    throw new Error("红蓝双方都需要 1 名队长和至少 1 名队员");
+  }
+
+  return {
+    red: {
+      spymasterId: redPlayers[0]!,
+      operativeIds: redPlayers.slice(1),
+    },
+    blue: {
+      spymasterId: bluePlayers[0]!,
+      operativeIds: bluePlayers.slice(1),
+    },
   };
+}
+
+export function countRemainingByTeam(keyGrid: KeyCellState[], board: PublicCardState[]): Record<TeamName, number> {
+  const revealed = new Set(board.filter((card) => card.revealedOwner).map((card) => card.id));
+  return keyGrid.reduce(
+    (counts, cell) => {
+      if ((cell.owner === "red" || cell.owner === "blue") && !revealed.has(cell.cardId)) {
+        counts[cell.owner] += 1;
+      }
+      return counts;
+    },
+    { red: 0, blue: 0 },
+  );
+}
+
+export function createInitialTurn(startingTeam: TeamName, teams: GameTeams, keyGrid: KeyCellState[], board: PublicCardState[], now: TimeInput = new Date()): TurnState {
+  return {
+    currentTeam: startingTeam,
+    phase: "clue",
+    clue: null,
+    remainingGuesses: 0,
+    activePlayerId: teams[startingTeam].spymasterId,
+    nextOperativeIndex: { red: 0, blue: 0 },
+    result: null,
+    remainingByTeam: countRemainingByTeam(keyGrid, board),
+    ...phaseTimes("clue", now),
+  };
+}
+
+export function submitClue(turn: TurnState, teams: GameTeams, clueText: string, count: number, now: TimeInput = new Date()): TurnState {
+  if (turn.phase !== "clue" || turn.result) {
+    throw new Error("当前不能提交线索");
+  }
+
+  const operativeIds = teams[turn.currentTeam].operativeIds;
+  const activeIndex = turn.nextOperativeIndex[turn.currentTeam] % operativeIds.length;
+  const activePlayerId = operativeIds[activeIndex]!;
 
   return {
     ...turn,
-    clue: clueState,
     phase: "guess",
+    clue: { text: clueText, count },
+    remainingGuesses: count + 1,
+    activePlayerId,
+    nextOperativeIndex: {
+      ...turn.nextOperativeIndex,
+      [turn.currentTeam]: (activeIndex + 1) % operativeIds.length,
+    },
+    ...phaseTimes("guess", now),
   };
 }
 
-export function countRemaining(board: CardState[], team: TeamName): number {
-  return board.filter((card) => !card.revealed && card.owner === team).length;
-}
-
-export function determineWinner(board: CardState[], guessedOwner: CardOwner | null): WinnerState | null {
-  if (countRemaining(board, "red") === 0) {
-    return { team: "red", reason: "all_found" };
-  }
-
-  if (countRemaining(board, "blue") === 0) {
-    return { team: "blue", reason: "all_found" };
-  }
-
-  return null;
-}
-
-export function oppositeTeam(team: TeamName): TeamName {
+export function otherTeam(team: TeamName): TeamName {
   return team === "red" ? "blue" : "red";
 }
 
-export function revealCard(board: CardState[], cardId: string): CardState[] {
-  let found = false;
-  const nextBoard = board.map((card) => {
-    if (card.id !== cardId) {
-      return card;
-    }
-
-    if (card.revealed) {
-      throw new Error("Card already revealed");
-    }
-
-    found = true;
-    return { ...card, revealed: true };
-  });
-
-  if (!found) {
-    throw new Error("Card not found");
+export function endTurn(turn: TurnState, teams: GameTeams, now: TimeInput = new Date()): TurnState {
+  if (turn.phase === "ended" || turn.result) {
+    return turn;
   }
 
-  return nextBoard;
-}
-
-export function guessCard(state: RoundState, cardId: string): GuessOutcome {
-  if (state.turn.phase !== "guess" || !state.turn.clue) {
-    throw new Error("Guess phase not active");
-  }
-
-  const board = revealCard(state.board, cardId);
-  const card = board.find((entry) => entry.id === cardId)!;
-  if (card.owner === "assassin") {
-    return {
-      card,
-      nextTurn: state.turn,
-      winner: { team: oppositeTeam(state.turn.team), reason: "assassin" },
-      shouldEndTurn: true,
-    };
-  }
-
-  const winner = determineWinner(board, card.owner);
-
-  if (winner) {
-    return {
-      card,
-      nextTurn: state.turn,
-      winner,
-      shouldEndTurn: true,
-    };
-  }
-
-  const guessedFriendly = card.owner === state.turn.team;
-  const guessesRemaining = guessedFriendly ? state.turn.clue.guessesRemaining - 1 : 0;
-  const shouldEndTurn = !guessedFriendly || guessesRemaining <= 0;
-  const nextTurn: TurnState = shouldEndTurn
-    ? createInitialTurn(oppositeTeam(state.turn.team))
-    : {
-        ...state.turn,
-        clue: {
-          ...state.turn.clue,
-          guessesRemaining,
-        },
-      };
-
+  const nextTeam = otherTeam(turn.currentTeam);
   return {
-    card,
-    nextTurn,
-    winner: null,
-    shouldEndTurn,
+    ...turn,
+    currentTeam: nextTeam,
+    phase: "clue",
+    clue: null,
+    remainingGuesses: 0,
+    activePlayerId: teams[nextTeam].spymasterId,
+    ...phaseTimes("clue", now),
   };
 }
 
-export function endTurn(turn: TurnState): TurnState {
-  if (turn.phase !== "guess") {
-    throw new Error("Cannot end turn before clue");
+export function applyGuess(
+  board: PublicCardState[],
+  keyGrid: KeyCellState[],
+  turn: TurnState,
+  teams: GameTeams,
+  cardId: string,
+  now: TimeInput = new Date(),
+): { board: PublicCardState[]; turn: TurnState; owner: CardOwner } {
+  if (turn.phase !== "guess" || turn.result) {
+    throw new Error("当前不能猜牌");
   }
 
-  return createInitialTurn(oppositeTeam(turn.team));
+  const card = board.find((entry) => entry.id === cardId);
+  if (!card) {
+    throw new Error("卡牌不存在");
+  }
+  if (card.revealedOwner) {
+    throw new Error("这张牌已经揭示");
+  }
+
+  const owner = keyGrid.find((cell) => cell.cardId === cardId)?.owner;
+  if (!owner) {
+    throw new Error("答案不存在");
+  }
+
+  const nextBoard = board.map((entry) => (entry.id === cardId ? { ...entry, revealedOwner: owner } : entry));
+  const remainingByTeam = countRemainingByTeam(keyGrid, nextBoard);
+  let nextTurn: TurnState = {
+    ...turn,
+    remainingGuesses: Math.max(0, turn.remainingGuesses - 1),
+    remainingByTeam,
+  };
+
+  if (owner === "assassin") {
+    nextTurn = {
+      ...nextTurn,
+      phase: "ended",
+      activePlayerId: null,
+      result: { winner: otherTeam(turn.currentTeam), reason: "assassin" },
+      ...phaseTimes("ended", now),
+    };
+    return { board: nextBoard, turn: nextTurn, owner };
+  }
+
+  if (owner === "red" || owner === "blue") {
+    if (remainingByTeam[owner] === 0) {
+      nextTurn = {
+        ...nextTurn,
+        phase: "ended",
+        activePlayerId: null,
+        result: { winner: owner, reason: "all_revealed" },
+        ...phaseTimes("ended", now),
+      };
+      return { board: nextBoard, turn: nextTurn, owner };
+    }
+  }
+
+  if (owner !== turn.currentTeam || nextTurn.remainingGuesses === 0) {
+    nextTurn = endTurn(nextTurn, teams, now);
+  }
+
+  return { board: nextBoard, turn: nextTurn, owner };
 }

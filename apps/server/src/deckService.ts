@@ -2,9 +2,9 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 
-import type { ValidatedDeck } from "@codenames/shared";
+import type { GameMode, ValidatedDeck } from "@codenames/shared";
 
-import { fallbackWords } from "./fallbackWords";
+import { fallbackWords } from "./fallbackWords.js";
 
 const deckSchema = z.object({
   cards: z.array(z.string().min(2).max(6)).length(25),
@@ -36,7 +36,46 @@ export function validateWords(words: string[]): string[] {
   return normalized;
 }
 
-export function createFallbackDeck(): ValidatedDeck {
+const imageCardAlts = [
+  "旧相机",
+  "档案袋",
+  "指南针",
+  "打字机",
+  "胶片",
+  "放大镜",
+  "怀表",
+  "密信",
+  "电话",
+  "油灯",
+  "地图",
+  "印章",
+  "车票",
+  "钥匙",
+  "雨伞",
+  "咖啡杯",
+  "剧院",
+  "港口",
+  "钟楼",
+  "手套",
+  "望远镜",
+  "火柴盒",
+  "留声机",
+  "羽毛笔",
+  "邮票",
+];
+
+export function createFallbackDeck(mode: GameMode = "text"): ValidatedDeck {
+  if (mode === "image") {
+    return {
+      mode: "fallback",
+      contents: imageCardAlts.map((alt, index) => ({
+        type: "image" as const,
+        imageUrl: index % 2 === 0 ? "/mode-image.jpg" : "/deck-cover.jpg",
+        alt,
+      })),
+    };
+  }
+
   const contents = fallbackWords.slice(0, 25).map((text) => ({ type: "word" as const, text }));
   return {
     mode: "fallback",
@@ -44,9 +83,13 @@ export function createFallbackDeck(): ValidatedDeck {
   };
 }
 
-export async function generateAiDeck(client?: OpenAI): Promise<ValidatedDeck> {
+export async function generateAiDeck(client?: OpenAI, mode: GameMode = "text"): Promise<ValidatedDeck> {
+  if (mode === "image") {
+    return createFallbackDeck("image");
+  }
+
   if (!client) {
-    return createFallbackDeck();
+    return createFallbackDeck("text");
   }
 
   const input = [
@@ -86,11 +129,10 @@ export async function generateAiDeck(client?: OpenAI): Promise<ValidatedDeck> {
       };
     } catch (error) {
       if (attempt === 2) {
-        return createFallbackDeck();
+        return createFallbackDeck("text");
       }
     }
   }
 
-  return createFallbackDeck();
+  return createFallbackDeck("text");
 }
-

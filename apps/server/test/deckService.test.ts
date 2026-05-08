@@ -53,5 +53,13 @@ describe("deckService", () => {
     const deck = createFallbackDeck();
     expect(deck.contents[0]?.text).toBeTruthy();
   });
-});
 
+  it("creates a 25-card fallback image deck with unique alt text", () => {
+    const deck = createFallbackDeck("image");
+    const alts = deck.contents.map((card) => (card.type === "image" ? card.alt : ""));
+
+    expect(deck.contents).toHaveLength(25);
+    expect(deck.contents.every((card) => card.type === "image")).toBe(true);
+    expect(new Set(alts).size).toBe(25);
+  });
+});
