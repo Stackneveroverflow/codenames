@@ -7,7 +7,7 @@ function resolveServerUrl() {
     return import.meta.env.VITE_SERVER_URL;
   }
   if (window.location.port === "5173") {
-    return "http://localhost:3001";
+    return `${window.location.protocol}//${window.location.hostname}:3001`;
   }
   return window.location.origin;
 }
