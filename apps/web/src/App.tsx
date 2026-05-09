@@ -11,6 +11,7 @@ import { playSound } from "./lib/audio";
 import { getServerUrl, getSocket } from "./lib/socket";
 
 const storageKey = "codenames-dealer:identity";
+const durableStorageKey = "codenames-dealer:durable-identity";
 
 type StoredIdentity = Record<string, { playerId: string }>;
 type HomeStep = "home" | "mode" | "headcount" | "join" | "guide";
@@ -312,7 +313,7 @@ function turnTimerInfo(snapshot: PlayerViewSnapshot, now: number): TurnTimerInfo
     active,
     expired,
     label,
-    value: expired ? "时间到" : remainingMs === null ? "--:--" : formatTimer(remainingMs),
+    value: expired ? "抓紧时间" : remainingMs === null ? "--:--" : formatTimer(remainingMs),
     signature: turn?.deadlineAt ? `${turn.phaseStartedAt}-${turn.phase}-${turn.deadlineAt}` : null,
   };
 }
@@ -326,15 +327,41 @@ function generateNickname() {
   return nicknameParts[Math.floor(Math.random() * nicknameParts.length)] ?? "灯塔";
 }
 
+function readStorageIdentity(key: string, storage: Storage | undefined) {
+  if (!storage) {
+    return {};
+  }
+  try {
+    return JSON.parse(storage.getItem(key) ?? "{}") as StoredIdentity;
+  } catch {
+    return {};
+  }
+}
+
+function writeStorageIdentity(key: string, storage: Storage | undefined, roomId: string, playerId: string) {
+  if (!storage) {
+    return;
+  }
+  try {
+    const parsed = readStorageIdentity(key, storage);
+    parsed[roomId] = { playerId };
+    storage.setItem(key, JSON.stringify(parsed));
+  } catch {
+    // Identity persistence is a convenience; socket state remains authoritative.
+  }
+}
+
 function readIdentity(roomId: string) {
-  const parsed = JSON.parse(sessionStorage.getItem(storageKey) ?? "{}") as StoredIdentity;
-  return parsed[roomId];
+  const sessionIdentity = readStorageIdentity(storageKey, sessionStorage)[roomId];
+  if (sessionIdentity) {
+    return sessionIdentity;
+  }
+  return readStorageIdentity(durableStorageKey, localStorage)[roomId];
 }
 
 function saveIdentity(roomId: string, playerId: string) {
-  const parsed = JSON.parse(sessionStorage.getItem(storageKey) ?? "{}") as StoredIdentity;
-  parsed[roomId] = { playerId };
-  sessionStorage.setItem(storageKey, JSON.stringify(parsed));
+  writeStorageIdentity(storageKey, sessionStorage, roomId, playerId);
+  writeStorageIdentity(durableStorageKey, localStorage, roomId, playerId);
 }
 
 function useDebouncedAction(delay = 180) {
@@ -504,6 +531,9 @@ function HomePage() {
 
   useEffect(() => {
     setDeckSource(gameMode === "image" ? "ai" : "fallback");
+    if (gameMode === "text") {
+      setAiConfigOpen(false);
+    }
     setError((current) => (current === missingApiKeyError ? "" : current));
   }, [gameMode]);
 
@@ -534,7 +564,8 @@ function HomePage() {
 
   function createRoom() {
     const trimmedKey = aiApiKey.trim();
-    if (deckSource === "ai" && !trimmedKey) {
+    const useAiDeck = gameMode === "image" && deckSource === "ai";
+    if (useAiDeck && !trimmedKey) {
       setAiConfigOpen(true);
       setError(missingApiKeyError);
       playSound("danger");
@@ -544,7 +575,7 @@ function HomePage() {
     socket.emit(socketEvents.roomCreate, {
       nickname,
       config: { gameMode, teamSize },
-      ...(deckSource === "ai" && trimmedKey
+      ...(useAiDeck && trimmedKey
         ? {
             aiConfig: {
               provider: aiProvider,
@@ -611,7 +642,7 @@ function HomePage() {
 
           {step === "headcount" && (
             <section className="stack-screen">
-              <ScreenTitle title="配置行动小队" note={`${modeLabels[gameMode]} · 选择人数和牌库`} />
+              <ScreenTitle title="配置行动小队" note={gameMode === "text" ? `${modeLabels[gameMode]} · 本地中文牌库` : `${modeLabels[gameMode]} · 选择人数和牌库`} />
               <div className="headcount-grid" data-animate="panel">
                 {teamSizeOptions.map((size) => (
                   <button key={size} type="button" className={`count-tile${teamSize === size ? " count-tile--active" : ""}`} onClick={() => runAction(() => setTeamSize(size), "score")} data-animate="card">
@@ -629,7 +660,7 @@ function HomePage() {
                 onSourceChange={setDeckSource}
                 onConfigure={() => setAiConfigOpen(true)}
               />
-              {aiConfigOpen && (
+              {aiConfigOpen && gameMode === "image" && (
                 <AiConfigModal
                   gameMode={gameMode}
                   provider={aiProvider}
@@ -655,7 +686,7 @@ function HomePage() {
 
           {step === "join" && (
             <section className="stack-screen">
-              <ScreenTitle title="接入行动频道" note="输入房主分享的房间码，加入后会自动恢复身份。" />
+              <ScreenTitle title="接入行动频道" note="输入房主分享的房间码，直接回到房间链接可恢复身份。" />
               <label className="input-field">
                 <span>房间码</span>
                 <input value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase())} placeholder="E5NOM" maxLength={8} />
@@ -805,6 +836,18 @@ function DeckSourceSelector({
   onSourceChange: (source: DeckSource) => void;
   onConfigure: () => void;
 }) {
+  if (gameMode === "text") {
+    return (
+      <section className="deck-source-panel deck-source-panel--single" data-animate="panel">
+        <button type="button" className="deck-source-option deck-source-option--active" onClick={() => onSourceChange("fallback")}>
+          <span>本地牌库</span>
+          <strong>文字模式固定使用</strong>
+          <small>无需 API Key，直接使用内置中文词牌。</small>
+        </button>
+      </section>
+    );
+  }
+
   const aiModel = gameMode === "image" ? imageModel : textModel;
   const aiSummary = configured ? `${aiProviderLabels[provider]} · ${modelDisplayName(aiModel)}` : "待配置 API Key";
 
@@ -1178,8 +1221,14 @@ function RoomHeader({ snapshot, timerInfo, onShowGuide }: { snapshot: PlayerView
         </button>
         {timerInfo.active && (
           <div className={`turn-timer turn-timer--top${timerInfo.expired ? " turn-timer--expired" : ""}`} aria-live="polite">
-            <span>{timerInfo.expired ? "警报" : timerInfo.label}</span>
-            <strong>{timerInfo.value}</strong>
+            {timerInfo.expired ? (
+              <strong>抓紧时间</strong>
+            ) : (
+              <>
+                <span>{timerInfo.label}</span>
+                <strong>{timerInfo.value}</strong>
+              </>
+            )}
           </div>
         )}
         <span className={`status-pill${activePrompt ? " status-pill--active" : ""}`}>{activePrompt ?? "已发牌"}</span>
@@ -1399,7 +1448,7 @@ function BoardRoom({
     : turn
       ? `${teamLabels[turn.currentTeam]}回合 · ${turn.phase === "clue" ? "队长给线索" : "队员猜词"} · 当前操作者 ${nicknameFor(snapshot, turn.activePlayerId)}`
       : "公共牌阵已部署。";
-  const visibleBannerText = `${timeExpired ? "注意时间 · " : ""}${tab === "key" && canSeeKey ? "队长答案正在显示，请避免让队员看到屏幕。" : bannerText}`;
+  const visibleBannerText = timeExpired ? "抓紧时间" : tab === "key" && canSeeKey ? "队长答案正在显示，请避免让队员看到屏幕。" : bannerText;
 
   function submitCurrentClue() {
     const trimmed = clue.trim();
@@ -1442,7 +1491,7 @@ function BoardRoom({
             <div className="clue-form">
               <input value={clue} onChange={(event) => setClue(event.target.value)} placeholder={canSubmitClue ? "输入线索" : `等待 ${nicknameFor(snapshot, turn.activePlayerId)} 给线索`} maxLength={20} disabled={!canSubmitClue} />
               <input className="count-input" type="number" min={0} max={9} value={count} onChange={(event) => setCount(Math.max(0, Math.min(9, Number(event.target.value) || 0)))} disabled={!canSubmitClue} />
-              <IconButton icon={icons.key} label="提交" className="primary small-button" disabled={!canSubmitClue || !clue.trim() || Boolean(forbiddenClueText)} onClick={submitCurrentClue} />
+              <IconButton icon={icons.key} label="提交" className="primary action-button small-button" disabled={!canSubmitClue || !clue.trim() || Boolean(forbiddenClueText)} onClick={submitCurrentClue} />
             </div>
             {canSubmitClue && forbiddenClueText && <p className="clue-warning">线索不能包含牌阵中出现的字：{forbiddenClueText}，请重新输入</p>}
           </div>
@@ -1450,7 +1499,7 @@ function BoardRoom({
         {turn?.phase === "guess" && (
           <div className="guess-actions">
             <span>{canGuess ? "选择一张公共牌，或结束回合。" : `等待 ${nicknameFor(snapshot, turn.activePlayerId)} 猜词`}</span>
-            <IconButton icon={icons.back} label="结束回合" className="secondary small-button" disabled={!canGuess} onClick={onEndTurn} />
+            <IconButton icon={icons.back} label="结束回合" className="secondary action-button small-button" disabled={!canGuess} onClick={onEndTurn} />
           </div>
         )}
       </section>
@@ -1460,9 +1509,12 @@ function BoardRoom({
           <div className="key-grid" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
             {cards.map((card) => {
               const owner = keyForCard(snapshot.keyGrid, card.id) ?? "neutral";
+              const isRevealed = Boolean(card.revealedOwner);
+              const isImageCard = card.content.type === "image";
               return (
-                <div key={card.id} className={`key-cell key-cell--${owner}`} data-mark={ownerMarks[owner]} data-animate="card">
-                  <span>{cardText(card)}</span>
+                <div key={card.id} className={`key-cell key-cell--${owner}${isImageCard ? " key-cell--image" : ""}${isRevealed ? " key-cell--revealed" : ""}`} data-mark={ownerMarks[owner]} data-animate="card">
+                  {card.content.type === "image" ? <img src={imageSrc(card.content.imageUrl)} alt={card.content.alt || "图牌"} /> : <span>{cardText(card)}</span>}
+                  {isRevealed && <small>已翻开</small>}
                 </div>
               );
             })}
@@ -1484,10 +1536,7 @@ function BoardRoom({
               {card.content.type === "word" ? (
                 <span>{card.content.text}</span>
               ) : (
-                <>
-                  <img src={imageSrc(card.content.imageUrl)} alt={card.content.alt || "图牌"} />
-                  {card.content.alt && <small>{card.content.alt}</small>}
-                </>
+                <img src={imageSrc(card.content.imageUrl)} alt={card.content.alt || "图牌"} />
               )}
               {card.revealedOwner && <em>{ownerLabels[card.revealedOwner]}</em>}
             </button>

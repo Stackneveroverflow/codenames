@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createFallbackDeck, createImageDeckFromGrid, generateAiDeck, validateWords } from "../src/deckService";
+import { fallbackWords } from "../src/fallbackWords";
 import { GeneratedImageStore } from "../src/generatedImageStore";
 
 const aiConfig = {
@@ -91,7 +92,37 @@ describe("deckService", () => {
 
   it("creates fallback deck from local words", () => {
     const deck = createFallbackDeck();
-    expect(deck.contents[0]?.text).toBeTruthy();
+    const words = deck.contents.map((card) => (card.type === "word" ? card.text : ""));
+
+    expect(deck.contents).toHaveLength(25);
+    expect(deck.contents.every((card) => card.type === "word")).toBe(true);
+    expect(new Set(words).size).toBe(25);
+    expect(words.every((word) => fallbackWords.includes(word))).toBe(true);
+  });
+
+  it("keeps the local text word bank at 476 unique common entity words", () => {
+    expect(fallbackWords).toHaveLength(476);
+    expect(new Set(fallbackWords).size).toBe(476);
+    expect(fallbackWords.every((word) => /^[\p{Script=Han}]{2,3}$/u.test(word))).toBe(true);
+    expect(fallbackWords).toContain("网吧");
+    expect(fallbackWords).toContain("航母");
+    expect(fallbackWords).toContain("田地");
+    expect(fallbackWords).toContain("大拇指");
+    expect(fallbackWords).toContain("蜘蛛");
+    expect(fallbackWords).toContain("电梯");
+    expect(fallbackWords).toContain("花园");
+    expect(fallbackWords).toContain("小汽车");
+    expect(fallbackWords).toContain("红苹果");
+    expect(fallbackWords).toContain("女医生");
+  });
+
+  it("randomizes local fallback words instead of taking the first 25 entries", () => {
+    const deck = createFallbackDeck("text", () => 0.999999);
+    const words = deck.contents.map((card) => (card.type === "word" ? card.text : ""));
+
+    expect(words).toHaveLength(25);
+    expect(new Set(words).size).toBe(25);
+    expect(words).not.toEqual(fallbackWords.slice(0, 25));
   });
 
   it("creates a 25-card fallback image deck with unique alt text", () => {
@@ -106,13 +137,13 @@ describe("deckService", () => {
   it("creates 25 image cards by cropping a single generated grid image", async () => {
     const imageStore = new GeneratedImageStore();
     const gridSvg = Buffer.from(`
-      <svg xmlns="http://www.w3.org/2000/svg" width="500" height="500">
-        <rect width="500" height="500" fill="#e0c36b"/>
+      <svg xmlns="http://www.w3.org/2000/svg" width="503" height="497">
+        <rect width="503" height="497" fill="#e0c36b"/>
         ${Array.from({ length: 25 }, (_, index) => {
-          const x = (index % 5) * 100;
-          const y = Math.floor(index / 5) * 100;
+          const x = 4 + (index % 5) * 99;
+          const y = 1 + Math.floor(index / 5) * 99;
           const value = (index + 1).toString(16).padStart(2, "0");
-          return `<rect x="${x + 5}" y="${y + 5}" width="90" height="90" fill="#${value}${value}${value}"/>`;
+          return `<rect x="${x + 6}" y="${y + 6}" width="87" height="87" fill="#${value}${value}${value}"/>`;
         }).join("")}
       </svg>
     `);
@@ -123,8 +154,14 @@ describe("deckService", () => {
     expect(deck.mode).toBe("ai");
     expect(deck.contents).toHaveLength(25);
     expect(new Set(imageUrls).size).toBe(25);
-    expect(imageStore.get(imageUrls[0]!)).toMatchObject({
+    const firstImage = imageStore.get(imageUrls[0]!);
+    expect(firstImage).toMatchObject({
       contentType: "image/png",
+    });
+    const sharp = (await import("sharp")).default;
+    await expect(sharp(firstImage!.data).metadata()).resolves.toMatchObject({
+      width: 512,
+      height: 512,
     });
   });
 });

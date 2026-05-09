@@ -224,7 +224,7 @@ select:disabled {
 
 .board-screen {
   grid-template-rows: auto auto auto 1fr auto auto;
-  gap: 10px;
+  gap: 8px;
   align-content: start;
   overflow: hidden auto;
 }
@@ -234,7 +234,7 @@ select:disabled {
 }
 
 .room-header--player + .board-screen {
-  height: calc(100% - 98px);
+  height: calc(100% - 110px);
 }
 
 .hero-copy h1,
@@ -550,8 +550,8 @@ select:disabled {
   transition: opacity 180ms ease;
 }
 
-.action-button.primary:hover::after,
-.action-button.secondary:hover::after {
+.action-button.primary:not(:disabled):hover::after,
+.action-button.secondary:not(:disabled):hover::after {
   opacity: 1;
 }
 
@@ -569,6 +569,18 @@ select:disabled {
 
 .small-button {
   min-width: 82px;
+}
+
+.action-button.small-button {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 11px;
+  font-size: 0.82rem;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 241, 207, 0.12);
+}
+
+.action-button.primary.small-button {
+  box-shadow: 0 10px 22px rgba(184, 120, 51, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(76, 43, 18, 0.4);
 }
 
 .full-width {
@@ -1160,7 +1172,7 @@ select {
 .feedback-banner--time {
   border-color: rgba(255, 92, 76, 0.7);
   color: #ffd3cb;
-  animation: danger-pulse 820ms ease infinite;
+  animation: red-alert-flash 680ms steps(2, end) infinite;
 }
 
 .pulse-dot {
@@ -1227,14 +1239,18 @@ select {
 .turn-timer--expired {
   border-color: rgba(255, 92, 76, 0.64);
   background: rgba(173, 48, 43, 0.24);
-  animation: danger-pulse 820ms ease infinite;
+  animation: red-alert-flash 680ms steps(2, end) infinite;
 }
 
 .turn-timer--expired strong {
   color: #ffd3cb;
+  justify-self: center;
+  font-size: 1rem;
+  letter-spacing: 0;
 }
 
 .turn-timer--top.turn-timer--expired {
+  grid-template-columns: 1fr;
   border-color: rgba(255, 92, 76, 0.86);
   background:
     linear-gradient(90deg, rgba(173, 48, 43, 0.52), rgba(10, 8, 7, 0.78)),
@@ -1280,15 +1296,25 @@ select {
 
 .clue-form {
   grid-template-columns: minmax(0, 1fr) 58px auto;
+  align-items: center;
 }
 
 .clue-form input {
+  height: 40px;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 0 10px;
   background: rgba(8, 7, 6, 0.72);
   color: var(--paper);
+}
+
+.clue-form .action-button.small-button,
+.guess-actions .action-button.small-button {
+  width: max-content;
+  min-width: 96px;
+  height: 40px;
+  white-space: nowrap;
 }
 
 .count-input {
@@ -1305,6 +1331,7 @@ select {
 .guess-actions {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  min-height: 40px;
 }
 
 .card-grid,
@@ -1313,9 +1340,19 @@ select {
   min-height: 0;
   display: grid;
   grid-template-rows: repeat(5, minmax(0, 1fr));
-  gap: 7px;
+  gap: 5px;
   aspect-ratio: 1 / 1;
   align-self: start;
+}
+
+.card-grid,
+.key-wrap {
+  width: min(100%, 320px, max(220px, calc(100dvh - 520px)));
+  justify-self: center;
+}
+
+.key-wrap {
+  width: min(100%, 340px, max(240px, calc(100dvh - 520px)));
 }
 
 .public-card,
@@ -1329,7 +1366,7 @@ select {
   place-items: center;
   overflow: hidden;
   border: 1px solid rgba(255, 226, 168, 0.2);
-  border-radius: 11px;
+  border-radius: 9px;
   animation: card-enter 420ms ease both;
 }
 
@@ -1367,10 +1404,10 @@ select {
 
 .public-card span {
   max-width: 100%;
-  padding: 4px;
+  padding: 3px;
   overflow-wrap: anywhere;
   text-align: center;
-  font-size: clamp(0.78rem, 4.1vw, 1.04rem);
+  font-size: clamp(0.72rem, 3.55vw, 0.96rem);
   font-weight: 950;
 }
 
@@ -1413,12 +1450,12 @@ select {
   display: grid;
   grid-template-rows: auto auto auto;
   align-content: start;
-  gap: 10px;
+  gap: 8px;
 }
 
 .key-cell {
   isolation: isolate;
-  padding: 4px;
+  padding: 3px;
   text-align: center;
   color: #fff;
   font-weight: 950;
@@ -1442,13 +1479,96 @@ select {
   position: relative;
   z-index: 1;
   max-width: 100%;
-  padding: 4px;
-  overflow-wrap: anywhere;
+  padding: 2px;
+  overflow: hidden;
   color: inherit;
   text-align: center;
-  font-size: clamp(0.78rem, 4.1vw, 1.04rem);
+  font-size: clamp(0.84rem, 3.8vw, 1.08rem);
   font-weight: 950;
+  line-height: 1;
+  white-space: nowrap;
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.36);
+}
+
+.key-cell--image {
+  padding: 4px;
+  background: rgba(10, 8, 7, 0.9);
+}
+
+.key-cell--image::before {
+  content: none;
+}
+
+.key-cell--image img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.key-cell--image.key-cell--red {
+  border-color: rgba(255, 89, 76, 0.96);
+  box-shadow: inset 0 0 0 2px rgba(255, 89, 76, 0.9), 0 10px 20px rgba(173, 48, 43, 0.24);
+}
+
+.key-cell--image.key-cell--blue {
+  border-color: rgba(79, 167, 232, 0.96);
+  box-shadow: inset 0 0 0 2px rgba(79, 167, 232, 0.9), 0 10px 20px rgba(47, 103, 146, 0.24);
+}
+
+.key-cell--image.key-cell--neutral {
+  border-color: rgba(245, 223, 170, 0.96);
+  box-shadow: inset 0 0 0 2px rgba(245, 223, 170, 0.9), 0 10px 20px rgba(80, 56, 28, 0.22);
+}
+
+.key-cell--image.key-cell--assassin {
+  border-color: rgba(25, 20, 17, 0.98);
+  box-shadow: inset 0 0 0 2px rgba(25, 20, 17, 0.95), 0 10px 20px rgba(0, 0, 0, 0.28);
+}
+
+.key-cell--revealed {
+  filter: saturate(0.78) brightness(0.78);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 0 28px rgba(0, 0, 0, 0.3), 0 8px 18px rgba(0, 0, 0, 0.2);
+}
+
+.key-cell--revealed::after {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  content: "";
+  background: linear-gradient(180deg, rgba(17, 13, 9, 0.24), rgba(17, 13, 9, 0.1));
+  pointer-events: none;
+}
+
+.key-cell--revealed span {
+  z-index: 2;
+}
+
+.key-cell--revealed img {
+  z-index: 2;
+}
+
+.key-cell small {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  z-index: 3;
+  max-width: calc(100% - 8px);
+  padding: 2px 5px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  background: rgba(17, 13, 9, 0.58);
+  color: #fff8e9;
+  font-size: 0.58rem;
+  font-weight: 950;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
 }
 
 .key-cell--red {
@@ -1495,16 +1615,16 @@ select {
 .key-legend {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  gap: 4px;
 }
 
 .score-chip {
-  padding: 7px 4px;
+  padding: 5px 4px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: rgba(10, 8, 7, 0.74);
   text-align: center;
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   font-weight: 900;
   animation: score-pop 420ms ease both;
 }
@@ -1522,7 +1642,7 @@ select {
 }
 
 .score-meter {
-  height: 10px;
+  height: 8px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1539,6 +1659,7 @@ select {
 .board-footer {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  margin-top: -2px;
 }
 
 .error-text {
@@ -1611,7 +1732,14 @@ select {
 }
 
 .victory-tips {
+  min-height: 156px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
   border-color: rgba(240, 203, 122, 0.28);
+}
+
+.victory-tips > div {
+  min-width: 0;
 }
 
 .victory-tips--red {
@@ -1625,15 +1753,16 @@ select {
 .victory-tips ul {
   min-width: 0;
   margin: 8px 0 0;
-  padding-left: 18px;
+  padding-left: 17px;
   color: var(--paper-soft);
-  font-size: 0.86rem;
+  font-size: 0.8rem;
   font-weight: 800;
-  line-height: 1.45;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .victory-tips li + li {
-  margin-top: 5px;
+  margin-top: 4px;
 }
 
 .result-modal h2 {
@@ -1757,6 +1886,17 @@ select {
   }
 }
 
+@keyframes red-alert-flash {
+  50% {
+    border-color: rgba(255, 206, 198, 0.96);
+    background:
+      linear-gradient(90deg, rgba(213, 64, 55, 0.78), rgba(118, 22, 19, 0.64)),
+      rgba(213, 64, 55, 0.62);
+    box-shadow: 0 0 0 2px rgba(255, 92, 76, 0.28), 0 0 34px rgba(255, 92, 76, 0.42);
+    filter: brightness(1.2);
+  }
+}
+
 @keyframes radar-sweep {
   to {
     transform: rotate(360deg);
@@ -1839,11 +1979,11 @@ select {
   }
 
   .card-grid {
-    width: min(100%, calc(100dvh - 296px));
+    width: min(100%, 480px, max(360px, calc(100dvh - 400px)));
   }
 
   .key-wrap {
-    width: min(100%, calc(100dvh - 364px));
+    width: min(100%, 480px, max(360px, calc(100dvh - 400px)));
   }
 
   .key-grid {
@@ -1860,6 +2000,7 @@ select {
     align-self: start;
     grid-column: 2;
     grid-template-columns: 1fr;
+    margin-top: -4px;
   }
 }
 

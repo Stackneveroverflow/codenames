@@ -104,7 +104,18 @@ const imageCardAlts = [
   "邮票",
 ];
 
-export function createFallbackDeck(mode: GameMode = "text"): ValidatedDeck {
+function sampleWords(words: readonly string[], count: number, random: () => number): string[] {
+  const pool = words.slice();
+  for (let index = 0; index < count; index += 1) {
+    const remaining = pool.length - index;
+    const raw = Math.min(Math.max(random(), 0), 0.9999999999999999);
+    const selected = index + Math.floor(raw * remaining);
+    [pool[index], pool[selected]] = [pool[selected]!, pool[index]!];
+  }
+  return pool.slice(0, count);
+}
+
+export function createFallbackDeck(mode: GameMode = "text", random: () => number = Math.random): ValidatedDeck {
   if (mode === "image") {
     return {
       mode: "fallback",
@@ -116,7 +127,7 @@ export function createFallbackDeck(mode: GameMode = "text"): ValidatedDeck {
     };
   }
 
-  const contents = fallbackWords.slice(0, 25).map((text) => ({ type: "word" as const, text }));
+  const contents = sampleWords(fallbackWords, 25, random).map((text) => ({ type: "word" as const, text }));
   return {
     mode: "fallback",
     contents,
@@ -130,20 +141,23 @@ export async function createImageDeckFromGrid(roomId: string, gridImage: Buffer,
     throw new Error("Generated image grid has no dimensions");
   }
 
-  const cellWidth = Math.floor(metadata.width / 5);
-  const cellHeight = Math.floor(metadata.height / 5);
-  if (cellWidth < 32 || cellHeight < 32) {
+  const squareSize = Math.min(metadata.width, metadata.height);
+  const gridSize = squareSize - (squareSize % 5);
+  const cellSize = gridSize / 5;
+  if (cellSize < 32) {
     throw new Error("Generated image grid is too small");
   }
+  const sourceLeft = Math.floor((metadata.width - gridSize) / 2);
+  const sourceTop = Math.floor((metadata.height - gridSize) / 2);
 
   const dealId = randomUUID();
   const contents = [];
   for (let index = 0; index < 25; index += 1) {
     const cardId = `card-${index + 1}`;
-    const left = (index % 5) * cellWidth;
-    const top = Math.floor(index / 5) * cellHeight;
+    const left = sourceLeft + (index % 5) * cellSize;
+    const top = sourceTop + Math.floor(index / 5) * cellSize;
     const data = await sharp(gridImage)
-      .extract({ left, top, width: cellWidth, height: cellHeight })
+      .extract({ left, top, width: cellSize, height: cellSize })
       .resize(512, 512, { fit: "cover" })
       .png()
       .toBuffer();
@@ -353,12 +367,13 @@ function delay(milliseconds: number): Promise<void> {
 
 function imageGridPrompt() {
   return [
-    "Create one square 5x5 grid image for a Codenames-style abstract image board.",
-    "The image must contain exactly 25 equal square cells with clear straight grid boundaries and no margin outside the grid.",
-    "Each cell should be visually distinct and challenging to describe, but all 25 cells must share one consistent visual language.",
-    "Style: minimalist geometric abstraction, eerie and strange, high contrast black gray white marks on aged yellow kraft paper card backgrounds.",
-    "Avoid concrete single-concept objects. Do not draw cats, cars, castles, people, faces, logos, letters, numbers, readable text, maps, flags, weapons, or brand-like icons.",
-    "Use ambiguous shapes, broken circles, lines, shadows, scratches, stains, impossible diagrams, and symbolic textures.",
-    "The output must be a single flat front-facing square image, suitable for deterministic 5 by 5 equal cropping.",
+    "Create one square 5x5 grid image for a Codenames-style picture board.",
+    "The image must contain exactly 25 equal square cells, arranged in five rows and five columns, with clean straight grid boundaries and no margin outside the grid.",
+    "Every cell must contain one concrete but imaginative combined subject or scene, centered and isolated inside its own cell, such as a treasure chest with a long tongue, a train passing through a tunnel, a moon inside a teacup, or a key-shaped lighthouse.",
+    "Make all 25 subjects different from each other and keep them from crossing into neighboring cells.",
+    "Style: black and white line drawing, ink sketch, no color except an aged yellow kraft paper texture background in every cell.",
+    "Use simple readable silhouettes, clear negative space, thin dark outlines, and light paper grain.",
+    "Do not draw letters, numbers, readable text, logos, watermarks, maps, flags, UI icons, or brand-like symbols.",
+    "The output must be a single flat front-facing square image, suitable for deterministic 5 by 5 equal cropping into independent cards.",
   ].join(" ");
 }
