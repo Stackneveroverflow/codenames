@@ -1,0 +1,16 @@
+{
+  "name": "@codenames/entry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 0.0.0.0",
+    "lint": "vite build",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "vite": "^7.1.12",
+    "vitest": "^3.2.4"
+  }
+}

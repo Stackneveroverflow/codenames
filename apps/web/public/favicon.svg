@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Codenames icon">
+  <defs>
+    <linearGradient id="field" x1="10" y1="10" x2="54" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#dc2626"/>
+      <stop offset="0.48" stop-color="#ef4444"/>
+      <stop offset="0.52" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#020617" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#0f172a"/>
+  <rect x="12" y="12" width="40" height="40" rx="10" fill="url(#field)" filter="url(#shadow)"/>
+  <path d="M14 50 50 14" stroke="#f8fafc" stroke-width="3" stroke-linecap="round" opacity="0.72"/>
+  <path d="M19 35c2.6-8.5 7-12.5 13-12.5S42.4 26.5 45 35c-2.3 5.1-6.7 7.8-13 7.8S21.3 40.1 19 35Z" fill="#020617"/>
+  <path d="M25.5 34.5c2.2-2.1 4.5-2.1 6.5 0 2-2.1 4.3-2.1 6.5 0-1.6 3.1-4 4.7-6.5 4.7s-4.9-1.6-6.5-4.7Z" fill="#f8fafc"/>
+  <path d="M31 17h2l3.5 8.5h-9L31 17Z" fill="#020617"/>
+</svg>

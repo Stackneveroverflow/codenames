@@ -17,6 +17,13 @@ type HomeStep = "home" | "mode" | "headcount" | "join" | "guide";
 type BoardTab = "public" | "key";
 type DeckSource = "fallback" | "ai";
 type HostInfo = { port: number; localUrl: string; lanUrls: string[] };
+type TurnTimerInfo = {
+  active: boolean;
+  expired: boolean;
+  label: string;
+  value: string;
+  signature: string | null;
+};
 
 const nicknameParts = [
   "安然",
@@ -294,6 +301,27 @@ function formatTimer(milliseconds: number) {
   return `${minutes}:${seconds}`;
 }
 
+function turnTimerInfo(snapshot: PlayerViewSnapshot, now: number): TurnTimerInfo {
+  const turn = snapshot.turn;
+  const active = Boolean(turn && !turn.result && turn.phase !== "ended");
+  const deadlineTime = turn?.deadlineAt ? new Date(turn.deadlineAt).getTime() : null;
+  const remainingMs = deadlineTime === null ? null : deadlineTime - now;
+  const expired = Boolean(active && remainingMs !== null && remainingMs <= 0);
+  const label = turn?.phase === "clue" ? "给线索" : turn?.phase === "guess" ? "猜词" : "计时";
+  return {
+    active,
+    expired,
+    label,
+    value: expired ? "时间到" : remainingMs === null ? "--:--" : formatTimer(remainingMs),
+    signature: turn?.deadlineAt ? `${turn.phaseStartedAt}-${turn.phase}-${turn.deadlineAt}` : null,
+  };
+}
+
+function resultSignature(snapshot: PlayerViewSnapshot) {
+  const result = snapshot.turn?.result;
+  return result ? `${result.winner}-${result.reason}-${snapshot.turn?.phaseStartedAt}` : null;
+}
+
 function generateNickname() {
   return nicknameParts[Math.floor(Math.random() * nicknameParts.length)] ?? "灯塔";
 }
@@ -434,6 +462,16 @@ async function copyText(text: string) {
     return;
   }
   copyTextFallback(text);
+}
+
+function entryJoinUrl(roomId: string) {
+  const target = new URL(window.location.href);
+  target.port = "5174";
+  target.pathname = "/";
+  target.search = "";
+  target.hash = "";
+  target.searchParams.set("join", roomId);
+  return target.toString();
 }
 
 function HomePage() {
@@ -949,10 +987,13 @@ function RoomPage() {
   const [error, setError] = useState("");
   const [tab, setTab] = useState<BoardTab>("public");
   const [guideOpen, setGuideOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [dismissedResultSignature, setDismissedResultSignature] = useState<string | null>(null);
   const [identityModalDealSignature, setIdentityModalDealSignature] = useState<string | null>(null);
   const autoKeyDealRef = useRef<string | null>(null);
   const identityModalDealRef = useRef<string | null>(null);
   const publicOverrideDealRef = useRef<string | null>(null);
+  const alarmedTimerRef = useRef<string | null>(null);
   const runAction = useDebouncedAction();
   useGsapEntrance(scopeRef, `${snapshot?.phase ?? "loading"}-${tab}`);
 
@@ -994,6 +1035,33 @@ function RoomPage() {
     };
   }, [roomId, socket]);
 
+  useEffect(() => {
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [snapshot?.turn?.deadlineAt]);
+
+  const timerInfo = snapshot ? turnTimerInfo(snapshot, now) : null;
+  const currentResultSignature = snapshot ? resultSignature(snapshot) : null;
+  const showResultModal = Boolean(snapshot?.turn?.result && currentResultSignature !== dismissedResultSignature);
+
+  useEffect(() => {
+    if (!timerInfo?.expired || !timerInfo.signature) {
+      return;
+    }
+    if (alarmedTimerRef.current === timerInfo.signature) {
+      return;
+    }
+    alarmedTimerRef.current = timerInfo.signature;
+    playSound("danger");
+  }, [timerInfo?.expired, timerInfo?.signature]);
+
+  useEffect(() => {
+    if (!currentResultSignature) {
+      setDismissedResultSignature(null);
+    }
+  }, [currentResultSignature]);
+
   if (!snapshot) {
     return (
       <Shell>
@@ -1008,10 +1076,11 @@ function RoomPage() {
 
   const isHost = snapshot.hostId === snapshot.selfId;
   const onlineCount = snapshot.players.filter((player) => player.online).length;
+  const loadedTimerInfo = timerInfo ?? turnTimerInfo(snapshot, now);
 
   return (
     <Shell scopeRef={scopeRef}>
-      <RoomHeader snapshot={snapshot} onShowGuide={() => setGuideOpen(true)} />
+      <RoomHeader snapshot={snapshot} timerInfo={loadedTimerInfo} onShowGuide={() => setGuideOpen(true)} />
 
       {snapshot.phase === "lobby" ? (
         <WaitingRoom
@@ -1039,19 +1108,31 @@ function RoomPage() {
           }
           isHost={isHost}
           error={error}
+          timerInfo={loadedTimerInfo}
           onReturnToLobby={() => runAction(() => socket.emit(socketEvents.gameReturnToLobby, { roomId }), "deal")}
           onSubmitClue={(clue, count) => runAction(() => socket.emit(socketEvents.gameSubmitClue, { roomId, clue, count }), "score")}
           onGuessCard={(cardId) => runAction(() => socket.emit(socketEvents.gameGuessCard, { roomId, cardId }), "tap")}
           onEndTurn={() => runAction(() => socket.emit(socketEvents.gameEndTurn, { roomId }), "score")}
         />
       )}
-      {guideOpen && <GameGuideModal onClose={() => setGuideOpen(false)} />}
+      {guideOpen && <GameGuideModal snapshot={snapshot.phase === "dealt" ? snapshot : undefined} onClose={() => setGuideOpen(false)} />}
       {identityModalDealSignature && identityModalDealSignature === dealSignature(snapshot) && <IdentityModal snapshot={snapshot} onClose={() => setIdentityModalDealSignature(null)} />}
+      {showResultModal && snapshot.turn?.result && (
+        <ResultModal
+          result={snapshot.turn.result}
+          isHost={isHost}
+          onClose={() => setDismissedResultSignature(currentResultSignature)}
+          onReturnToLobby={() => {
+            setDismissedResultSignature(currentResultSignature);
+            runAction(() => socket.emit(socketEvents.gameReturnToLobby, { roomId }), "deal");
+          }}
+        />
+      )}
     </Shell>
   );
 }
 
-function RoomHeader({ snapshot, onShowGuide }: { snapshot: PlayerViewSnapshot; onShowGuide: () => void }) {
+function RoomHeader({ snapshot, timerInfo, onShowGuide }: { snapshot: PlayerViewSnapshot; timerInfo: TurnTimerInfo; onShowGuide: () => void }) {
   if (snapshot.phase === "lobby") {
     return (
       <header className="room-header">
@@ -1091,7 +1172,18 @@ function RoomHeader({ snapshot, onShowGuide }: { snapshot: PlayerViewSnapshot; o
           ))}
         </div>
       </div>
-      <span className={`status-pill${activePrompt ? " status-pill--active" : ""}`}>{activePrompt ?? "已发牌"}</span>
+      <div className="room-header-actions">
+        <button type="button" className="signal-chip signal-chip--button" onClick={onShowGuide}>
+          游戏说明
+        </button>
+        {timerInfo.active && (
+          <div className={`turn-timer turn-timer--top${timerInfo.expired ? " turn-timer--expired" : ""}`} aria-live="polite">
+            <span>{timerInfo.expired ? "警报" : timerInfo.label}</span>
+            <strong>{timerInfo.value}</strong>
+          </div>
+        )}
+        <span className={`status-pill${activePrompt ? " status-pill--active" : ""}`}>{activePrompt ?? "已发牌"}</span>
+      </div>
     </header>
   );
 }
@@ -1108,13 +1200,14 @@ function RoomCodeCopyButton({ roomId }: { roomId: string }) {
   }, [copyState]);
 
   async function copyRoomId() {
+    const inviteUrl = entryJoinUrl(roomId);
     try {
-      await copyText(roomId);
+      await copyText(inviteUrl);
       setCopyState("copied");
       playSound("score");
     } catch {
       try {
-        copyTextFallback(roomId);
+        copyTextFallback(inviteUrl);
         setCopyState("copied");
         playSound("score");
       } catch {
@@ -1127,7 +1220,7 @@ function RoomCodeCopyButton({ roomId }: { roomId: string }) {
   return <IconButton icon={icons.copy} label={copyState === "copied" ? "已复制" : copyState === "error" ? "失败" : "复制"} className="secondary copy-button room-code-copy" onClick={copyRoomId} />;
 }
 
-function GameGuideModal({ onClose }: { onClose: () => void }) {
+function GameGuideModal({ snapshot, onClose }: { snapshot?: PlayerViewSnapshot; onClose: () => void }) {
   return (
     <div className="result-overlay modal-overlay" role="dialog" aria-modal="true" aria-labelledby="room-guide-title">
       <section className="result-modal compact-modal guide-modal">
@@ -1140,9 +1233,39 @@ function GameGuideModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="guide-sections guide-sections--modal">
           <GuideRuleBlocks />
+          {snapshot && <VictoryTips snapshot={snapshot} />}
         </div>
       </section>
     </div>
+  );
+}
+
+function VictoryTips({ snapshot }: { snapshot: PlayerViewSnapshot }) {
+  const self = selfPlayer(snapshot);
+  const role = self?.role ?? snapshot.selfRole;
+  const team = teamForRole(role);
+  const roleType = role.endsWith("_spymaster") ? "spymaster" : role.endsWith("_operatives") ? "operative" : "spectator";
+  const teamName = team ? teamLabels[team] : "行动小队";
+  const title = roleType === "spymaster" ? `${teamName}队长获胜技巧` : roleType === "operative" ? `${teamName}队员获胜技巧` : "旁观者提示";
+  const tips =
+    roleType === "spymaster"
+      ? [`优先串联${teamName}剩余牌，线索数量宁少勿冒险。`, "给线索前先扫刺客和对方牌，避免把队员引向危险区域。", "队员犹豫时不要补充暗示，只靠下一轮线索修正方向。"]
+      : roleType === "operative"
+        ? [`先找最符合线索的${teamName}牌，不确定时及时结束回合。`, "猜牌前排除刺客和明显对方牌，别为了多猜一张扩大风险。", "多名队员意见不一致时，以线索数量和队长过往风格收敛选择。"]
+        : ["只观察公共信息，不暗示答案、颜色或危险牌。", "结算前不要用表情、语气或动作影响任一队判断。", "需要讲解规则时，只解释通用规则，不评价当前牌阵。"];
+
+  return (
+    <article className={`guide-block victory-tips${team ? ` victory-tips--${team}` : ""}`} data-animate="card">
+      <div>
+        <span>获胜技巧</span>
+        <strong>{title}</strong>
+        <ul>
+          {tips.map((tip) => (
+            <li key={tip}>{tip}</li>
+          ))}
+        </ul>
+      </div>
+    </article>
   );
 }
 
@@ -1233,6 +1356,7 @@ function BoardRoom({
   setTab,
   isHost,
   error,
+  timerInfo,
   onReturnToLobby,
   onSubmitClue,
   onGuessCard,
@@ -1243,6 +1367,7 @@ function BoardRoom({
   setTab: (tab: BoardTab) => void;
   isHost: boolean;
   error: string;
+  timerInfo: TurnTimerInfo;
   onReturnToLobby: () => void;
   onSubmitClue: (clue: string, count: number) => void;
   onGuessCard: (cardId: string) => void;
@@ -1250,8 +1375,6 @@ function BoardRoom({
 }) {
   const [clue, setClue] = useState("");
   const [count, setCount] = useState(1);
-  const [now, setNow] = useState(() => Date.now());
-  const [dismissedResultSignature, setDismissedResultSignature] = useState<string | null>(null);
   const canSeeKey = canViewKey(snapshot);
   const cols = boardColumns();
   const cards = snapshot.board ?? [];
@@ -1260,12 +1383,7 @@ function BoardRoom({
   const canSubmitClue = activeIsSelf && turn?.phase === "clue";
   const canGuess = activeIsSelf && turn?.phase === "guess";
   const forbiddenClueText = useMemo(() => findForbiddenClueText(cards, clue), [cards, clue]);
-  const deadlineTime = turn?.deadlineAt ? new Date(turn.deadlineAt).getTime() : null;
-  const remainingMs = deadlineTime === null ? null : deadlineTime - now;
-  const timeExpired = Boolean(turn && !turn.result && turn.phase !== "ended" && remainingMs !== null && remainingMs <= 0);
-  const timerLabel = turn?.phase === "clue" ? "给线索" : turn?.phase === "guess" ? "猜词" : "已结束";
-  const resultSignature = turn?.result ? `${turn.result.winner}-${turn.result.reason}-${turn.phaseStartedAt}` : null;
-  const showResultModal = Boolean(turn?.result && resultSignature !== dismissedResultSignature);
+  const timeExpired = timerInfo.expired;
   const redPlayers = teamPlayers(snapshot, "red");
   const bluePlayers = teamPlayers(snapshot, "blue");
   const keyCounts = useMemo(() => {
@@ -1282,18 +1400,6 @@ function BoardRoom({
       ? `${teamLabels[turn.currentTeam]}回合 · ${turn.phase === "clue" ? "队长给线索" : "队员猜词"} · 当前操作者 ${nicknameFor(snapshot, turn.activePlayerId)}`
       : "公共牌阵已部署。";
   const visibleBannerText = `${timeExpired ? "注意时间 · " : ""}${tab === "key" && canSeeKey ? "队长答案正在显示，请避免让队员看到屏幕。" : bannerText}`;
-
-  useEffect(() => {
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [turn?.deadlineAt]);
-
-  useEffect(() => {
-    if (!resultSignature) {
-      setDismissedResultSignature(null);
-    }
-  }, [resultSignature]);
 
   function submitCurrentClue() {
     const trimmed = clue.trim();
@@ -1322,12 +1428,6 @@ function BoardRoom({
           <span className="score-chip score-chip--blue">蓝 {turn?.remainingByTeam.blue ?? 0}</span>
           <span className="score-chip">剩余猜测 {turn?.remainingGuesses ?? 0}</span>
         </div>
-        {turn && turn.phase !== "ended" && (
-          <div className={`turn-timer${timeExpired ? " turn-timer--expired" : ""}`} aria-live="polite">
-            <span>{timerLabel}</span>
-            <strong>{timeExpired ? "注意时间" : remainingMs === null ? "--:--" : formatTimer(remainingMs)}</strong>
-          </div>
-        )}
         <div className="team-strip">
           <TeamRoster label="红队" players={redPlayers} snapshot={snapshot} />
           <TeamRoster label="蓝队" players={bluePlayers} snapshot={snapshot} />
@@ -1399,17 +1499,6 @@ function BoardRoom({
         <span>{canSeeKey ? "队长答案仅当前账号可见" : "队员视图不显示答案"}</span>
         {turn?.result && <IconButton icon={icons.back} label={isHost ? "返回等候房间" : "等待房主返回"} className="secondary action-button compact-action" disabled={!isHost} onClick={onReturnToLobby} />}
       </footer>
-      {showResultModal && turn?.result && (
-        <ResultModal
-          result={turn.result}
-          isHost={isHost}
-          onClose={() => setDismissedResultSignature(resultSignature)}
-          onReturnToLobby={() => {
-            setDismissedResultSignature(resultSignature);
-            onReturnToLobby();
-          }}
-        />
-      )}
       {error && <ErrorText message={error} />}
     </section>
   );
@@ -1483,8 +1572,8 @@ function ResultModal({ result, isHost, onClose, onReturnToLobby }: { result: Non
   const isAssassin = result.reason === "assassin";
   const reasonText = isAssassin ? "对手点中刺客" : "己方词牌全部揭示";
   return (
-    <div className="result-overlay" role="dialog" aria-modal="true" aria-label="本局结算">
-      <section className={`result-modal result-modal--${result.winner}`}>
+    <div className="result-overlay modal-overlay" role="dialog" aria-modal="true" aria-label="本局结算">
+      <section className={`result-modal result-modal--${result.winner}${isAssassin ? " result-modal--assassin" : ""}`}>
         <p className="eyebrow">Mission Complete</p>
         <h2>{teamLabels[result.winner]}获胜</h2>
         <p>{reasonText}</p>

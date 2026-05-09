@@ -288,6 +288,8 @@ select:disabled {
 }
 
 .room-header--player {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-start;
   padding-top: 16px;
 }
@@ -304,6 +306,19 @@ select:disabled {
 .player-identity {
   display: grid;
   gap: 7px;
+}
+
+.room-header--player .room-header-actions {
+  grid-template-columns: auto auto;
+  align-items: center;
+  justify-content: end;
+}
+
+.room-header--player .signal-chip,
+.room-header--player .status-pill {
+  min-height: 32px;
+  padding-inline: 10px;
+  white-space: nowrap;
 }
 
 .identity-badges {
@@ -1194,6 +1209,15 @@ select {
   background: rgba(8, 7, 6, 0.42);
 }
 
+.turn-timer--top {
+  grid-column: span 2;
+  width: min(100%, 220px);
+  justify-self: end;
+  min-height: 38px;
+  border-color: rgba(240, 203, 122, 0.36);
+  background: rgba(10, 8, 7, 0.78);
+}
+
 .turn-timer strong {
   color: var(--gold);
   font-size: 1.05rem;
@@ -1208,6 +1232,14 @@ select {
 
 .turn-timer--expired strong {
   color: #ffd3cb;
+}
+
+.turn-timer--top.turn-timer--expired {
+  border-color: rgba(255, 92, 76, 0.86);
+  background:
+    linear-gradient(90deg, rgba(173, 48, 43, 0.52), rgba(10, 8, 7, 0.78)),
+    rgba(173, 48, 43, 0.34);
+  box-shadow: 0 0 0 2px rgba(173, 48, 43, 0.18), 0 0 30px rgba(255, 92, 76, 0.24);
 }
 
 .team-strip {
@@ -1576,6 +1608,32 @@ select {
   max-height: min(58dvh, 520px);
   overflow: hidden auto;
   padding-right: 2px;
+}
+
+.victory-tips {
+  border-color: rgba(240, 203, 122, 0.28);
+}
+
+.victory-tips--red {
+  border-color: rgba(255, 118, 106, 0.38);
+}
+
+.victory-tips--blue {
+  border-color: rgba(101, 170, 219, 0.4);
+}
+
+.victory-tips ul {
+  min-width: 0;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--paper-soft);
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.victory-tips li + li {
+  margin-top: 5px;
 }
 
 .result-modal h2 {
