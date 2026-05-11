@@ -38,12 +38,12 @@ describe("RoomStore dealer flow", () => {
     expect(snapshot.config.teamSize).toBe(10);
   });
 
-  it("stores host AI config privately without exposing the API key in snapshots", () => {
+  it("stores image-mode host AI config privately without exposing the API key in snapshots", () => {
     const store = new RoomStore();
     const created = store.createRoom(
       "甲",
       "socket-1",
-      { gameMode: "text", teamSize: 4 },
+      { gameMode: "image", teamSize: 4 },
       {
         provider: "openai",
         apiKey: "sk-private-room-key",
@@ -62,6 +62,24 @@ describe("RoomStore dealer flow", () => {
     expect(JSON.stringify(store.snapshotFor(created.roomId, created.playerId))).not.toContain("sk-private-room-key");
   });
 
+  it("ignores AI config for text-mode rooms", () => {
+    const store = new RoomStore();
+    const created = store.createRoom(
+      "甲",
+      "socket-1",
+      { gameMode: "text", teamSize: 4 },
+      {
+        provider: "openai",
+        apiKey: "sk-private-room-key",
+        textModel: "gpt-5.4-mini",
+        imageModel: "gpt-image-1.5",
+      },
+    );
+
+    expect(store.getAiConfig(created.roomId)).toBeNull();
+    expect(JSON.stringify(created.snapshot)).not.toContain("sk-private-room-key");
+  });
+
   it("deals image mode as a 25-card board", () => {
     const store = new RoomStore();
     const created = store.createRoom("甲", "socket-1", { gameMode: "image" });
@@ -76,6 +94,56 @@ describe("RoomStore dealer flow", () => {
     expect(snapshot.board).toHaveLength(25);
     expect(store.snapshotFor(created.roomId, captain.id).keyGrid).toHaveLength(25);
     expect(snapshot.board?.[0]?.content.type).toBe("image");
+  });
+
+  it("keeps an AI image deck in host preview until the host confirms it", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1", { gameMode: "image" });
+    const second = store.joinRoom(created.roomId, "乙", "socket-2");
+    store.joinRoom(created.roomId, "丙", "socket-3");
+    store.joinRoom(created.roomId, "丁", "socket-4");
+
+    const deck = createFallbackDeck("image");
+    store.previewImageDeck(created.roomId, created.playerId, deck);
+
+    const hostPreview = store.snapshotFor(created.roomId, created.playerId);
+    const guestPreview = store.snapshotFor(created.roomId, second.playerId);
+    expect(hostPreview.phase).toBe("lobby");
+    expect(hostPreview.board).toBeNull();
+    expect(hostPreview.teams).toBeNull();
+    expect(hostPreview.deckPreview?.board).toHaveLength(25);
+    expect(hostPreview.deckPreview?.board?.[0]?.content.type).toBe("image");
+    expect(guestPreview.deckPreview?.board).toBeNull();
+
+    store.confirmImagePreview(created.roomId, created.playerId);
+
+    const dealt = store.snapshotFor(created.roomId, created.playerId);
+    expect(dealt.phase).toBe("dealt");
+    expect(dealt.board).toHaveLength(25);
+    expect(dealt.deckPreview).toBeNull();
+    expect(dealt.board?.map((card) => card.content)).toEqual(deck.contents);
+  });
+
+  it("lets only the host replace or confirm an AI image preview", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1", { gameMode: "image" });
+    const second = store.joinRoom(created.roomId, "乙", "socket-2");
+    store.joinRoom(created.roomId, "丙", "socket-3");
+    store.joinRoom(created.roomId, "丁", "socket-4");
+    const firstDeck = createFallbackDeck("image");
+    const secondDeck = {
+      ...createFallbackDeck("image"),
+      contents: createFallbackDeck("image").contents.map((card, index) =>
+        card.type === "image" ? { ...card, imageUrl: `/replacement-${index}.png` } : card,
+      ),
+    };
+
+    store.previewImageDeck(created.roomId, created.playerId, firstDeck);
+    expect(() => store.previewImageDeck(created.roomId, second.playerId, secondDeck)).toThrow("只有房主可以执行此操作");
+    expect(() => store.confirmImagePreview(created.roomId, second.playerId)).toThrow("只有房主可以执行此操作");
+
+    store.previewImageDeck(created.roomId, created.playerId, secondDeck);
+    expect(store.snapshotFor(created.roomId, created.playerId).deckPreview?.board?.[0]?.content).toEqual(secondDeck.contents[0]);
   });
 
   it("does not overwrite rooms when generated room codes collide", () => {

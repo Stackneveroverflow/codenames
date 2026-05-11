@@ -136,6 +136,13 @@ export interface DeckGenerationState {
   message: string;
 }
 
+export interface DeckPreviewState {
+  status: "ready";
+  message: string;
+  board: PublicCardState[] | null;
+  model?: string;
+}
+
 export interface RoomState {
   roomId: string;
   phase: RoomPhase;
@@ -147,15 +154,17 @@ export interface RoomState {
   teams: GameTeams | null;
   turn: TurnState | null;
   deckGeneration: DeckGenerationState | null;
+  deckPreview: DeckPreviewState | null;
   activityLog: ActivityEntry[];
   createdAt: string;
   updatedAt: string;
 }
 
-export interface PlayerViewSnapshot extends Omit<RoomState, "keyGrid"> {
+export interface PlayerViewSnapshot extends Omit<RoomState, "keyGrid" | "deckPreview"> {
   selfId: string;
   selfRole: PlayerRole;
   keyGrid?: KeyCellState[] | null;
+  deckPreview?: DeckPreviewState | null;
 }
 
 export interface ValidatedDeck {
@@ -289,6 +298,14 @@ export const startGamePayloadSchema = z.object({
   roomId: z.string(),
 });
 
+export const confirmDeckPreviewPayloadSchema = z.object({
+  roomId: z.string(),
+});
+
+export const regenerateDeckPreviewPayloadSchema = z.object({
+  roomId: z.string(),
+});
+
 export const restartGamePayloadSchema = z.object({
   roomId: z.string(),
 });
@@ -319,6 +336,8 @@ export const socketEvents = {
   roomUpdateConfig: "room:update_config",
   roomSetSpectator: "room:set_spectator",
   gameStart: "game:start",
+  gameConfirmPreview: "game:confirm_preview",
+  gameRegeneratePreview: "game:regenerate_preview",
   gameRestart: "game:restart",
   gameReturnToLobby: "game:return_to_lobby",
   gameSubmitClue: "game:submit_clue",
@@ -338,6 +357,8 @@ export type ClientEventName =
   | typeof socketEvents.roomUpdateConfig
   | typeof socketEvents.roomSetSpectator
   | typeof socketEvents.gameStart
+  | typeof socketEvents.gameConfirmPreview
+  | typeof socketEvents.gameRegeneratePreview
   | typeof socketEvents.gameRestart
   | typeof socketEvents.gameReturnToLobby
   | typeof socketEvents.gameSubmitClue

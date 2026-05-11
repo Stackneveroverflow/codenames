@@ -8,7 +8,9 @@ import { Server } from "socket.io";
 import {
   joinRoomPayloadSchema,
   rejoinRoomPayloadSchema,
+  confirmDeckPreviewPayloadSchema,
   restartGamePayloadSchema,
+  regenerateDeckPreviewPayloadSchema,
   returnToLobbyPayloadSchema,
   setSpectatorPayloadSchema,
   socketEvents,
@@ -167,7 +169,11 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
         }
         try {
           const deck = aiConfig ? await generateAiDeck({ mode: config.gameMode, aiConfig, imageStore, roomId }) : createFallbackDeck(config.gameMode);
-          roomStore.startGame(roomId, socket.data.playerId, deck);
+          if (aiConfig && config.gameMode === "image") {
+            roomStore.previewImageDeck(roomId, socket.data.playerId, deck);
+          } else {
+            roomStore.startGame(roomId, socket.data.playerId, deck);
+          }
         } catch (error) {
           if (aiConfig) {
             roomStore.setDeckGeneration(roomId, socket.data.playerId, null);
@@ -175,6 +181,39 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
           }
           throw error;
         }
+        emitSnapshot(roomId);
+      }),
+    );
+
+    socket.on(
+      socketEvents.gameRegeneratePreview,
+      handle(regenerateDeckPreviewPayloadSchema, async ({ roomId }) => {
+        const config = roomStore.getConfig(roomId);
+        const aiConfig = roomStore.getAiConfig(roomId);
+        if (!aiConfig || config.gameMode !== "image") {
+          throw new Error("当前房间没有可重新生成的图片大模型牌库");
+        }
+        roomStore.setDeckGeneration(roomId, socket.data.playerId, {
+          active: true,
+          message: "AI 正在重新生成 5x5 图片牌阵",
+        });
+        emitSnapshot(roomId);
+        try {
+          const deck = await generateAiDeck({ mode: config.gameMode, aiConfig, imageStore, roomId });
+          roomStore.previewImageDeck(roomId, socket.data.playerId, deck);
+        } catch (error) {
+          roomStore.setDeckGeneration(roomId, socket.data.playerId, null);
+          emitSnapshot(roomId);
+          throw error;
+        }
+        emitSnapshot(roomId);
+      }),
+    );
+
+    socket.on(
+      socketEvents.gameConfirmPreview,
+      handle(confirmDeckPreviewPayloadSchema, ({ roomId }) => {
+        roomStore.confirmImagePreview(roomId, socket.data.playerId);
         emitSnapshot(roomId);
       }),
     );

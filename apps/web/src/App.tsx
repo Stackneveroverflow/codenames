@@ -213,6 +213,13 @@ function firstModel(models: readonly string[]) {
   return models[0] ?? "";
 }
 
+function defaultImageModel(provider: AiProvider) {
+  if (provider === "volcano") {
+    return "doubao-seedream-4-5-251128";
+  }
+  return firstModel(aiImageModelsByProvider[provider]);
+}
+
 function modelDisplayName(model: string) {
   return imageModelLabels[model] ?? model;
 }
@@ -408,7 +415,7 @@ function useHostInfo() {
 
 function openDemoWindow(roomId?: string) {
   const target = roomId ? `/?join=${roomId}` : "/";
-  window.open(target, "_blank", "popup,width=430,height=900");
+  window.open(target, "_blank", "popup,width=520,height=1040");
 }
 
 function boardColumns() {
@@ -513,10 +520,10 @@ function HomePage() {
   const [teamSize, setTeamSize] = useState<TeamSize>(4);
   const [deckSource, setDeckSource] = useState<DeckSource>("fallback");
   const [aiConfigOpen, setAiConfigOpen] = useState(false);
-  const [aiProvider, setAiProvider] = useState<AiProvider>("openai");
+  const [aiProvider, setAiProvider] = useState<AiProvider>("volcano");
   const [aiApiKey, setAiApiKey] = useState("");
-  const [aiTextModel, setAiTextModel] = useState(firstModel(aiTextModelsByProvider.openai));
-  const [aiImageModel, setAiImageModel] = useState(firstModel(aiImageModelsByProvider.openai));
+  const [aiTextModel, setAiTextModel] = useState(firstModel(aiTextModelsByProvider.volcano));
+  const [aiImageModel, setAiImageModel] = useState(defaultImageModel("volcano"));
   const [error, setError] = useState("");
   const runAction = useDebouncedAction();
   useGsapEntrance(scopeRef, step);
@@ -591,7 +598,7 @@ function HomePage() {
   function changeAiProvider(provider: AiProvider) {
     setAiProvider(provider);
     setAiTextModel(firstModel(aiTextModelsByProvider[provider]));
-    setAiImageModel(firstModel(aiImageModelsByProvider[provider]));
+    setAiImageModel(defaultImageModel(provider));
   }
 
   function joinRoom() {
@@ -1133,6 +1140,8 @@ function RoomPage() {
           error={error}
           hostInfo={hostInfo}
           onStart={() => runAction(() => socket.emit(socketEvents.gameStart, { roomId }), "deal")}
+          onConfirmPreview={() => runAction(() => socket.emit(socketEvents.gameConfirmPreview, { roomId }), "deal")}
+          onRegeneratePreview={() => runAction(() => socket.emit(socketEvents.gameRegeneratePreview, { roomId }), "deal")}
           onUpdateConfig={(config) => socket.emit(socketEvents.roomUpdateConfig, { roomId, config })}
           onSetSpectator={(spectator) => runAction(() => socket.emit(socketEvents.roomSetSpectator, { roomId, spectator }), "score")}
         />
@@ -1231,7 +1240,7 @@ function RoomHeader({ snapshot, timerInfo, onShowGuide }: { snapshot: PlayerView
             )}
           </div>
         )}
-        <span className={`status-pill${activePrompt ? " status-pill--active" : ""}`}>{activePrompt ?? "已发牌"}</span>
+        {activePrompt && <span className="status-pill status-pill--active">{activePrompt}</span>}
       </div>
     </header>
   );
@@ -1325,6 +1334,8 @@ function WaitingRoom({
   error,
   hostInfo,
   onStart,
+  onConfirmPreview,
+  onRegeneratePreview,
   onUpdateConfig,
   onSetSpectator,
 }: {
@@ -1334,6 +1345,8 @@ function WaitingRoom({
   error: string;
   hostInfo: HostInfo | null;
   onStart: () => void;
+  onConfirmPreview: () => void;
+  onRegeneratePreview: () => void;
   onUpdateConfig: (config: Partial<RoomConfig>) => void;
   onSetSpectator: (spectator: boolean) => void;
 }) {
@@ -1342,6 +1355,41 @@ function WaitingRoom({
   const emptySlots = Math.max(0, snapshot.config.teamSize - participants.length);
   const self = selfPlayer(snapshot);
   const isGenerating = Boolean(snapshot.deckGeneration?.active);
+  const previewBoard = snapshot.deckPreview?.board ?? null;
+
+  if (isHost && previewBoard?.length) {
+    return (
+      <section className="lobby-screen lobby-screen--preview">
+        <div className="lobby-stats" data-animate="panel">
+          <StatusCard label="在线成员" value={`${onlineCount}`} />
+          <StatusCard label="游戏玩家" value={`${participants.length} / ${snapshot.config.teamSize}`} />
+          <StatusCard label="牌阵状态" value="待确认" />
+        </div>
+        <section className="image-preview-panel" data-animate="panel">
+          <div className="image-preview-panel__head">
+            <div>
+              <p className="eyebrow">Image Board Preview</p>
+              <h2>确认图片牌阵</h2>
+            </div>
+            <span>{snapshot.deckPreview?.model ? modelDisplayName(snapshot.deckPreview.model) : "AI 图片牌库"}</span>
+          </div>
+          <div className="image-preview-grid" style={{ gridTemplateColumns: `repeat(${boardColumns()}, minmax(0, 1fr))` }}>
+            {previewBoard.map((card) => (
+              <div key={card.id} className="image-preview-card" data-animate="card">
+                {card.content.type === "image" && <img src={imageSrc(card.content.imageUrl)} alt={card.content.alt || "图牌"} />}
+              </div>
+            ))}
+          </div>
+          <p>{snapshot.deckPreview?.message ?? "图片牌阵已生成，确认后才会正式开局。"}</p>
+        </section>
+        {error && <ErrorText message={error} />}
+        <div className="preview-actions" data-animate="panel">
+          <IconButton icon={icons.magic} label={isGenerating ? "生成中" : "重新生成"} className="secondary action-button" disabled={isGenerating} onClick={onRegeneratePreview} />
+          <IconButton icon={icons.deal} label="确认开局" className="primary action-button" disabled={isGenerating} onClick={onConfirmPreview} />
+        </div>
+      </section>
+    );
+  }
 
   function renderPlayerSlot(player: PlayerState) {
     return (
@@ -1365,6 +1413,12 @@ function WaitingRoom({
         <div className="generation-banner" role="status" data-animate="panel">
           <span className="pulse-dot" />
           <strong>{snapshot.deckGeneration.message}</strong>
+        </div>
+      )}
+      {snapshot.deckPreview && !previewBoard && (
+        <div className="generation-banner" role="status" data-animate="panel">
+          <span className="pulse-dot" />
+          <strong>房主正在确认图片牌阵</strong>
         </div>
       )}
       <IconButton icon={icons.demo} label="打开本机玩家窗口" className="secondary action-button full-width" onClick={() => {
@@ -1394,7 +1448,7 @@ function WaitingRoom({
       </div>
       {error && <ErrorText message={error} />}
       {self && <IconButton icon={icons.users} label={self.spectatorIntent ? "加入游戏" : "作为旁观者"} className="secondary action-button full-width spectator-action" onClick={() => onSetSpectator(!self.spectatorIntent)} />}
-      <IconButton icon={icons.deal} label={isGenerating ? "生成中" : isHost ? "开始游戏" : "等待房主开始游戏"} className="primary action-button full-width sticky-action" disabled={!isHost || isGenerating} onClick={onStart} />
+      <IconButton icon={icons.deal} label={isGenerating ? "生成中" : isHost ? "开始游戏" : "等待房主开始游戏"} className="primary action-button full-width sticky-action" disabled={!isHost || isGenerating || Boolean(snapshot.deckPreview)} onClick={onStart} />
     </section>
   );
 }
@@ -1423,7 +1477,7 @@ function BoardRoom({
   onEndTurn: () => void;
 }) {
   const [clue, setClue] = useState("");
-  const [count, setCount] = useState(1);
+  const [count, setCount] = useState("");
   const canSeeKey = canViewKey(snapshot);
   const cols = boardColumns();
   const cards = snapshot.board ?? [];
@@ -1432,6 +1486,8 @@ function BoardRoom({
   const canSubmitClue = activeIsSelf && turn?.phase === "clue";
   const canGuess = activeIsSelf && turn?.phase === "guess";
   const forbiddenClueText = useMemo(() => findForbiddenClueText(cards, clue), [cards, clue]);
+  const selectedClueCount = count === "" ? null : Number(count);
+  const canSubmitCurrentClue = canSubmitClue && Boolean(clue.trim()) && selectedClueCount !== null && !forbiddenClueText;
   const timeExpired = timerInfo.expired;
   const redPlayers = teamPlayers(snapshot, "red");
   const bluePlayers = teamPlayers(snapshot, "blue");
@@ -1449,60 +1505,47 @@ function BoardRoom({
       ? `${teamLabels[turn.currentTeam]}回合 · ${turn.phase === "clue" ? "队长给线索" : "队员猜词"} · 当前操作者 ${nicknameFor(snapshot, turn.activePlayerId)}`
       : "公共牌阵已部署。";
   const visibleBannerText = timeExpired ? "抓紧时间" : tab === "key" && canSeeKey ? "队长答案正在显示，请避免让队员看到屏幕。" : bannerText;
+  const boardEffectTriggerId = `${dealSignature(snapshot) ?? snapshot.roomId}-${tab}`;
+
+  useEffect(() => {
+    if (turn?.phase === "clue") {
+      setCount("");
+    }
+  }, [turn?.phase, turn?.phaseStartedAt]);
+
+  function updateClueCount(value: string) {
+    if (value === "") {
+      setCount("");
+      return;
+    }
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return;
+    }
+    setCount(String(Math.max(0, Math.min(9, Math.trunc(parsed)))));
+  }
 
   function submitCurrentClue() {
     const trimmed = clue.trim();
-    if (!trimmed || forbiddenClueText) {
+    if (!trimmed || selectedClueCount === null || forbiddenClueText) {
       return;
     }
-    onSubmitClue(trimmed, count);
+    onSubmitClue(trimmed, selectedClueCount);
     setClue("");
+    setCount("");
   }
 
   return (
     <section className="board-screen">
-      <PhaserBoardEffects cards={cards} keyCounts={keyCounts} mode={tab} triggerId={`${snapshot.roomId}-${snapshot.updatedAt}-${tab}`} />
+      <PhaserBoardEffects cards={cards} keyCounts={keyCounts} mode={tab} triggerId={boardEffectTriggerId} />
       <div className={`feedback-banner${tab === "key" ? " feedback-banner--danger" : ""}${timeExpired ? " feedback-banner--time" : ""}`} role="status" data-animate="panel">
         <span className="pulse-dot" />
-        {visibleBannerText}
+        <span className="feedback-banner__text">{visibleBannerText}</span>
       </div>
       <div className="tab-row" data-animate="panel">
         <IconButton icon={icons.game} label="公共牌阵" className={tab === "public" ? "tab-button tab-button--active" : "tab-button"} onClick={() => setTab("public")} />
         <IconButton icon={icons.key} label="关键答案" className={tab === "key" ? "tab-button tab-button--active" : "tab-button"} disabled={!canSeeKey} onClick={() => setTab("key")} />
       </div>
-
-      <section className="turn-panel" data-animate="panel">
-        <div className="turn-score">
-          <span className="score-chip score-chip--red">红 {turn?.remainingByTeam.red ?? 0}</span>
-          <span className="score-chip score-chip--blue">蓝 {turn?.remainingByTeam.blue ?? 0}</span>
-          <span className="score-chip">剩余猜测 {turn?.remainingGuesses ?? 0}</span>
-        </div>
-        <div className="team-strip">
-          <TeamRoster label="红队" players={redPlayers} snapshot={snapshot} />
-          <TeamRoster label="蓝队" players={bluePlayers} snapshot={snapshot} />
-        </div>
-        {turn?.clue && (
-          <p className="clue-line">
-            线索 <strong>{turn.clue.text}</strong> / {turn.clue.count}
-          </p>
-        )}
-        {turn?.phase === "clue" && (
-          <div className="clue-entry">
-            <div className="clue-form">
-              <input value={clue} onChange={(event) => setClue(event.target.value)} placeholder={canSubmitClue ? "输入线索" : `等待 ${nicknameFor(snapshot, turn.activePlayerId)} 给线索`} maxLength={20} disabled={!canSubmitClue} />
-              <input className="count-input" type="number" min={0} max={9} value={count} onChange={(event) => setCount(Math.max(0, Math.min(9, Number(event.target.value) || 0)))} disabled={!canSubmitClue} />
-              <IconButton icon={icons.key} label="提交" className="primary action-button small-button" disabled={!canSubmitClue || !clue.trim() || Boolean(forbiddenClueText)} onClick={submitCurrentClue} />
-            </div>
-            {canSubmitClue && forbiddenClueText && <p className="clue-warning">线索不能包含牌阵中出现的字：{forbiddenClueText}，请重新输入</p>}
-          </div>
-        )}
-        {turn?.phase === "guess" && (
-          <div className="guess-actions">
-            <span>{canGuess ? "选择一张公共牌，或结束回合。" : `等待 ${nicknameFor(snapshot, turn.activePlayerId)} 猜词`}</span>
-            <IconButton icon={icons.back} label="结束回合" className="secondary action-button small-button" disabled={!canGuess} onClick={onEndTurn} />
-          </div>
-        )}
-      </section>
 
       {tab === "key" && canSeeKey ? (
         <div className="key-wrap">
@@ -1532,17 +1575,50 @@ function BoardRoom({
       ) : (
         <div className={`card-grid card-grid--${snapshot.config.gameMode}`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
           {cards.map((card) => (
-            <button key={card.id} type="button" className={`public-card${card.revealedOwner ? ` public-card--${card.revealedOwner}` : ""}`} disabled={!canGuess || Boolean(card.revealedOwner)} onClick={() => onGuessCard(card.id)} data-animate="card">
+            <button key={card.id} type="button" className={`public-card${card.content.type === "image" ? " public-card--image" : ""}${card.revealedOwner ? ` public-card--${card.revealedOwner}` : ""}`} disabled={!canGuess || Boolean(card.revealedOwner)} onClick={() => onGuessCard(card.id)} data-animate="card">
               {card.content.type === "word" ? (
                 <span>{card.content.text}</span>
               ) : (
                 <img src={imageSrc(card.content.imageUrl)} alt={card.content.alt || "图牌"} />
               )}
-              {card.revealedOwner && <em>{ownerLabels[card.revealedOwner]}</em>}
+              {card.revealedOwner && card.content.type === "word" && <em>{ownerLabels[card.revealedOwner]}</em>}
             </button>
           ))}
         </div>
       )}
+
+      <section className="turn-panel" data-animate="panel">
+        <div className="turn-score">
+          <span className="score-chip score-chip--red">红 {turn?.remainingByTeam.red ?? 0}</span>
+          <span className="score-chip score-chip--blue">蓝 {turn?.remainingByTeam.blue ?? 0}</span>
+          <span className="score-chip">剩余猜测 {turn?.remainingGuesses ?? 0}</span>
+        </div>
+        <div className="team-strip">
+          <TeamRoster label="红队" players={redPlayers} snapshot={snapshot} />
+          <TeamRoster label="蓝队" players={bluePlayers} snapshot={snapshot} />
+        </div>
+        {turn?.clue && (
+          <p className="clue-line">
+            线索 <strong>{turn.clue.text}</strong> / {turn.clue.count}
+          </p>
+        )}
+        {turn?.phase === "clue" && (
+          <div className="clue-entry">
+            <div className="clue-form">
+              <input value={clue} onChange={(event) => setClue(event.target.value)} placeholder={canSubmitClue ? "输入线索" : `等待 ${nicknameFor(snapshot, turn.activePlayerId)} 给线索`} maxLength={20} disabled={!canSubmitClue} />
+              <input className="count-input" type="number" min={0} max={9} step={1} value={count} onChange={(event) => updateClueCount(event.target.value)} placeholder="数量" disabled={!canSubmitClue} />
+              <IconButton icon={icons.key} label="提交" className="primary action-button small-button" disabled={!canSubmitCurrentClue} onClick={submitCurrentClue} />
+            </div>
+            {canSubmitClue && forbiddenClueText && <p className="clue-warning">线索不能包含牌阵中出现的字：{forbiddenClueText}，请重新输入</p>}
+          </div>
+        )}
+        {turn?.phase === "guess" && (
+          <div className="guess-actions">
+            <span>{canGuess ? "选择一张公共牌，或结束回合。" : `等待 ${nicknameFor(snapshot, turn.activePlayerId)} 猜词`}</span>
+            <IconButton icon={icons.back} label="结束回合" className="secondary action-button small-button" disabled={!canGuess} onClick={onEndTurn} />
+          </div>
+        )}
+      </section>
 
       <footer className="board-footer">
         <span>{canSeeKey ? "队长答案仅当前账号可见" : "队员视图不显示答案"}</span>

@@ -1,6 +1,6 @@
 import "./styles.css";
 
-const windowFeatures = "popup,width=430,height=900";
+const windowFeatures = "popup,width=520,height=1040";
 
 function targetGameUrl() {
   const target = new URL(window.location.href);

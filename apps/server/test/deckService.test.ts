@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createFallbackDeck, createImageDeckFromGrid, generateAiDeck, imageGridPrompt, validateWords } from "../src/deckService";
+import {
+  createFallbackDeck,
+  createImageDeckFromGrid,
+  generateAiDeck,
+  imageGenerationRequestOptions,
+  imageGridPrompt,
+  validateWords,
+} from "../src/deckService";
 import { fallbackWords } from "../src/fallbackWords";
 import { GeneratedImageStore } from "../src/generatedImageStore";
 
@@ -135,7 +142,7 @@ describe("deckService", () => {
   });
 
   it("asks image models for an invisible 5 by 5 layout without visible card frames", () => {
-    const prompt = imageGridPrompt();
+    const prompt = imageGridPrompt(() => 0);
 
     expect(prompt).toContain("invisible 5 by 5 layout");
     expect(prompt).toContain("no visible grid lines");
@@ -145,6 +152,61 @@ describe("deckService", () => {
     expect(prompt).toContain("margins");
     expect(prompt).toContain("gutters");
     expect(prompt).toContain("safe area");
+    expect(prompt).toContain("Do not draw any text");
+    expect(prompt).toContain("captions");
+    expect(prompt).toContain("labels");
+    expect(prompt).not.toContain("treasure chest");
+    expect(prompt).not.toContain("long tongue");
+    expect(prompt).not.toContain("train passing");
+  });
+
+  it("randomizes image prompts so generated boards do not repeat the same subjects", () => {
+    const firstPrompt = imageGridPrompt(() => 0);
+    const secondPrompt = imageGridPrompt(() => 0.999999);
+
+    expect(firstPrompt).not.toBe(secondPrompt);
+    expect(firstPrompt).toContain("Random seed");
+    expect(secondPrompt).toContain("Random seed");
+  });
+
+  it("omits output_format for Volcano Seedream 4.5 image requests", () => {
+    const request = imageGenerationRequestOptions(
+      {
+        provider: "volcano",
+        apiKey: "sk-test",
+        textModel: "doubao-seed-1-6-250615",
+        imageModel: "doubao-seedream-4-5-251128",
+      },
+      "prompt",
+    );
+
+    expect(request).toMatchObject({
+      model: "doubao-seedream-4-5-251128",
+      prompt: "prompt",
+      n: 1,
+      size: "2048x2048",
+      response_format: "b64_json",
+      watermark: false,
+    });
+    expect(request).not.toHaveProperty("output_format");
+  });
+
+  it("keeps output_format for Volcano Seedream 5 image requests", () => {
+    const request = imageGenerationRequestOptions(
+      {
+        provider: "volcano",
+        apiKey: "sk-test",
+        textModel: "doubao-seed-1-6-250615",
+        imageModel: "doubao-seedream-5-0-260128",
+      },
+      "prompt",
+    );
+
+    expect(request).toMatchObject({
+      model: "doubao-seedream-5-0-260128",
+      output_format: "png",
+      watermark: false,
+    });
   });
 
   it("creates 25 image cards by cropping a single generated grid image", async () => {
@@ -176,5 +238,43 @@ describe("deckService", () => {
       width: 512,
       height: 512,
     });
+  });
+
+  it("crops inside each generated grid cell to avoid gutters or misaligned cell borders", async () => {
+    const imageStore = new GeneratedImageStore();
+    const gridSvg = Buffer.from(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="500" height="500">
+        <rect width="500" height="500" fill="#000000"/>
+        ${Array.from({ length: 25 }, (_, index) => {
+          const x = (index % 5) * 100;
+          const y = Math.floor(index / 5) * 100;
+          return `<rect x="${x + 14}" y="${y + 14}" width="72" height="72" fill="#f0c878"/>`;
+        }).join("")}
+      </svg>
+    `);
+
+    const deck = await createImageDeckFromGrid("ROOM1", gridSvg, imageStore);
+    const firstUrl = deck.contents[0]?.type === "image" ? deck.contents[0].imageUrl : "";
+    const firstImage = imageStore.get(firstUrl)!;
+    const sharp = (await import("sharp")).default;
+    const topLeftPixel = await sharp(firstImage.data).raw().toBuffer({ resolveWithObject: true });
+
+    expect([...topLeftPixel.data.slice(0, 3)]).toEqual([240, 200, 120]);
+  });
+
+  it("randomizes cropped image card order after extracting the 5 by 5 grid", async () => {
+    const imageStore = new GeneratedImageStore();
+    const gridSvg = Buffer.from(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="500" height="500">
+        <rect width="500" height="500" fill="#e0c36b"/>
+      </svg>
+    `);
+
+    const deck = await createImageDeckFromGrid("ROOM1", gridSvg, imageStore, () => 0);
+    const imageUrls = deck.contents.map((card) => (card.type === "image" ? card.imageUrl : ""));
+
+    expect(imageUrls).toHaveLength(25);
+    expect(imageUrls[0]).not.toContain("card-1.png");
+    expect(new Set(imageUrls).size).toBe(25);
   });
 });

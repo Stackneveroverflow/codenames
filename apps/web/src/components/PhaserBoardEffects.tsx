@@ -12,6 +12,7 @@ interface PhaserBoardEffectsProps {
 
 export function PhaserBoardEffects({ cards, keyCounts, mode, triggerId }: PhaserBoardEffectsProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const keyCountsSignature = `${keyCounts.red}-${keyCounts.blue}-${keyCounts.neutral}-${keyCounts.assassin}`;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -53,7 +54,7 @@ export function PhaserBoardEffects({ cards, keyCounts, mode, triggerId }: Phaser
       active = false;
       game?.destroy(true);
     };
-  }, [cards.length, keyCounts, mode, triggerId]);
+  }, [cards.length, keyCountsSignature, mode, triggerId]);
 
   return <div ref={hostRef} className="phaser-effects" aria-hidden="true" />;
 }
