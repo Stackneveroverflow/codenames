@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createFallbackDeck, createImageDeckFromGrid, generateAiDeck, validateWords } from "../src/deckService";
+import { createFallbackDeck, createImageDeckFromGrid, generateAiDeck, imageGridPrompt, validateWords } from "../src/deckService";
 import { fallbackWords } from "../src/fallbackWords";
 import { GeneratedImageStore } from "../src/generatedImageStore";
 
@@ -132,6 +132,19 @@ describe("deckService", () => {
     expect(deck.contents).toHaveLength(25);
     expect(deck.contents.every((card) => card.type === "image")).toBe(true);
     expect(new Set(alts).size).toBe(25);
+  });
+
+  it("asks image models for an invisible 5 by 5 layout without visible card frames", () => {
+    const prompt = imageGridPrompt();
+
+    expect(prompt).toContain("invisible 5 by 5 layout");
+    expect(prompt).toContain("no visible grid lines");
+    expect(prompt).toContain("cell borders");
+    expect(prompt).toContain("rounded card frames");
+    expect(prompt).toContain("drop shadows");
+    expect(prompt).toContain("margins");
+    expect(prompt).toContain("gutters");
+    expect(prompt).toContain("safe area");
   });
 
   it("creates 25 image cards by cropping a single generated grid image", async () => {

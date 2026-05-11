@@ -365,13 +365,14 @@ function delay(milliseconds: number): Promise<void> {
   });
 }
 
-function imageGridPrompt() {
+export function imageGridPrompt() {
   return [
-    "Create one square 5x5 grid image for a Codenames-style picture board.",
-    "The image must contain exactly 25 equal square cells, arranged in five rows and five columns, with clean straight grid boundaries and no margin outside the grid.",
-    "Every cell must contain one concrete but imaginative combined subject or scene, centered and isolated inside its own cell, such as a treasure chest with a long tongue, a train passing through a tunnel, a moon inside a teacup, or a key-shaped lighthouse.",
-    "Make all 25 subjects different from each other and keep them from crossing into neighboring cells.",
-    "Style: black and white line drawing, ink sketch, no color except an aged yellow kraft paper texture background in every cell.",
+    "Create one square image for a Codenames-style picture board with an invisible 5 by 5 layout.",
+    "The image must contain exactly 25 equal invisible cells, arranged in five rows and five columns, but there must be no visible grid lines, cell borders, rounded card frames, drop shadows, margins, gutters, dividers, or seams.",
+    "Every invisible cell must contain one concrete but imaginative combined subject or scene, centered inside that cell's safe area, such as a treasure chest with a long tongue, a train passing through a tunnel, a moon inside a teacup, or a key-shaped lighthouse.",
+    "Make all 25 subjects different from each other, keep each subject fully inside its own invisible cell, and keep them from crossing into neighboring cells.",
+    "Leave clean aged yellow kraft paper texture background around each subject inside its invisible cell so deterministic cropping has comfortable breathing room.",
+    "Style: black and white line drawing, ink sketch, no color except the aged yellow kraft paper texture background across the full image.",
     "Use simple readable silhouettes, clear negative space, thin dark outlines, and light paper grain.",
     "Do not draw letters, numbers, readable text, logos, watermarks, maps, flags, UI icons, or brand-like symbols.",
     "The output must be a single flat front-facing square image, suitable for deterministic 5 by 5 equal cropping into independent cards.",
