@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 import {
   createFallbackDeck,
@@ -141,17 +142,41 @@ describe("deckService", () => {
     expect(new Set(alts).size).toBe(25);
   });
 
+  it("keeps a broad 200-item image object pool for varied generated combinations", () => {
+    const source = readFileSync("src/deckService.ts", "utf8");
+    const poolSource = source.match(/const imageObjectPool = \[([\s\S]*?)\];/)?.[1] ?? "";
+    const objects = [...poolSource.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+
+    expect(objects).toHaveLength(200);
+    expect(new Set(objects).size).toBe(200);
+  });
+
   it("asks image models for an invisible 5 by 5 layout without visible card frames", () => {
     const prompt = imageGridPrompt(() => 0);
 
-    expect(prompt).toContain("invisible 5 by 5 layout");
+    expect(prompt).toContain("invisible 5 by 5 crop layout");
+    expect(prompt).toContain("production sprite sheet");
+    expect(prompt).toContain("hard crop guides");
+    expect(prompt).toContain("20% by 20% crop area");
+    expect(prompt).toContain("no outer padding");
+    expect(prompt).toContain("no centered board");
     expect(prompt).toContain("no visible grid lines");
     expect(prompt).toContain("cell borders");
     expect(prompt).toContain("rounded card frames");
     expect(prompt).toContain("drop shadows");
     expect(prompt).toContain("margins");
     expect(prompt).toContain("gutters");
-    expect(prompt).toContain("safe area");
+    expect(prompt).toContain("private three-object candidate set");
+    expect(prompt).toContain("choose exactly the two most visually compatible objects");
+    expect(prompt).toContain("ignore the third object");
+    expect(prompt).toContain("Both chosen objects must be clearly visible");
+    expect(prompt).toContain("Never draw a cell with only one recognizable object");
+    expect(prompt).toContain("Fuse the chosen two objects");
+    expect(prompt).toContain("not by simply placing them side by side or stacking them together");
+    expect(prompt).toContain("abstract riddle-like composition");
+    expect(prompt).toContain("yellow kraft paper");
+    expect(prompt).toContain("Only the paper background");
+    expect(prompt).toContain("No colored subjects");
     expect(prompt).toContain("Do not draw any text");
     expect(prompt).toContain("captions");
     expect(prompt).toContain("labels");
@@ -240,26 +265,34 @@ describe("deckService", () => {
     });
   });
 
-  it("crops inside each generated grid cell to avoid gutters or misaligned cell borders", async () => {
+  it("keeps each generated grid cell complete without changing model colors", async () => {
     const imageStore = new GeneratedImageStore();
     const gridSvg = Buffer.from(`
       <svg xmlns="http://www.w3.org/2000/svg" width="500" height="500">
-        <rect width="500" height="500" fill="#000000"/>
+        <rect width="500" height="500" fill="#e0c36b"/>
         ${Array.from({ length: 25 }, (_, index) => {
           const x = (index % 5) * 100;
           const y = Math.floor(index / 5) * 100;
-          return `<rect x="${x + 14}" y="${y + 14}" width="72" height="72" fill="#f0c878"/>`;
+          return `<rect x="${x + 14}" y="${y + 14}" width="72" height="72" fill="#2060f0"/>`;
         }).join("")}
       </svg>
     `);
 
     const deck = await createImageDeckFromGrid("ROOM1", gridSvg, imageStore);
-    const firstUrl = deck.contents[0]?.type === "image" ? deck.contents[0].imageUrl : "";
+    const firstCard = deck.contents.find((card) => card.type === "image" && card.imageUrl.includes("card-1.png"));
+    const firstUrl = firstCard?.type === "image" ? firstCard.imageUrl : "";
     const firstImage = imageStore.get(firstUrl)!;
     const sharp = (await import("sharp")).default;
-    const topLeftPixel = await sharp(firstImage.data).raw().toBuffer({ resolveWithObject: true });
+    const pixels = await sharp(firstImage.data).raw().toBuffer({ resolveWithObject: true });
+    const channels = pixels.info.channels;
+    const centerOffset = ((256 * pixels.info.width + 256) * channels);
+    const center = [...pixels.data.slice(centerOffset, centerOffset + 3)];
+    const topLeft = [...pixels.data.slice(0, 3)];
 
-    expect([...topLeftPixel.data.slice(0, 3)]).toEqual([240, 200, 120]);
+    expect(topLeft[0]).toBeGreaterThan(topLeft[2]!);
+    expect(topLeft[1]).toBeGreaterThan(topLeft[2]!);
+    expect(center[2]).toBeGreaterThan(center[0]!);
+    expect(center[2]).toBeGreaterThan(center[1]!);
   });
 
   it("randomizes cropped image card order after extracting the 5 by 5 grid", async () => {

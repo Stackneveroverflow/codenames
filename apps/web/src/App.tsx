@@ -332,8 +332,31 @@ function resultSignature(snapshot: PlayerViewSnapshot) {
   return result ? `${result.winner}-${result.reason}-${snapshot.turn?.phaseStartedAt}` : null;
 }
 
-function generateNickname() {
-  return nicknameParts[Math.floor(Math.random() * nicknameParts.length)] ?? "灯塔";
+function normalizeNicknameList(names: readonly string[]) {
+  return new Set(names.map((name) => name.trim()).filter(Boolean));
+}
+
+function generateNickname(excludedNames: readonly string[] = []) {
+  const excluded = normalizeNicknameList(excludedNames);
+  const startIndex = Math.floor(Math.random() * nicknameParts.length);
+  for (let offset = 0; offset < nicknameParts.length; offset += 1) {
+    const candidate = nicknameParts[(startIndex + offset) % nicknameParts.length] ?? "灯塔";
+    if (!excluded.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `灯塔${Math.floor(Math.random() * 90) + 10}`;
+}
+
+function parseTakenNicknames(search: string) {
+  const raw = new URLSearchParams(search).get("taken");
+  if (!raw) {
+    return [];
+  }
+  return raw
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
 }
 
 function readStorageIdentity(key: string, storage: Storage | undefined) {
@@ -415,8 +438,16 @@ function useHostInfo() {
   return hostInfo;
 }
 
-function openDemoWindow(roomId?: string) {
-  const target = roomId ? `/?join=${roomId}` : "/";
+function openDemoWindow(roomId?: string, takenNicknames: readonly string[] = []) {
+  const params = new URLSearchParams();
+  if (roomId) {
+    params.set("join", roomId);
+  }
+  if (takenNicknames.length) {
+    params.set("taken", takenNicknames.join(","));
+  }
+  const query = params.toString();
+  const target = query ? `/?${query}` : "/";
   window.open(target, "_blank", "popup,width=520,height=1040");
 }
 
@@ -505,8 +536,9 @@ function HomePage() {
   const navigate = useNavigate();
   const socket = getSocket();
   const hostInfo = useHostInfo();
+  const initialTakenNicknames = useMemo(() => parseTakenNicknames(window.location.search), []);
   const [step, setStep] = useState<HomeStep>("home");
-  const [nickname, setNickname] = useState(generateNickname);
+  const [nickname, setNickname] = useState(() => generateNickname(initialTakenNicknames));
   const [joinCode, setJoinCode] = useState("");
   const [gameMode, setGameMode] = useState<GameMode>("text");
   const [teamSize, setTeamSize] = useState<TeamSize>(4);
@@ -521,7 +553,8 @@ function HomePage() {
   useGsapEntrance(scopeRef, step);
 
   useEffect(() => {
-    const roomToJoin = new URLSearchParams(window.location.search).get("join");
+    const search = new URLSearchParams(window.location.search);
+    const roomToJoin = search.get("join");
     if (roomToJoin) {
       setJoinCode(roomToJoin.toUpperCase());
       setStep("join");
@@ -608,7 +641,7 @@ function HomePage() {
           <TopBar
             label="游戏说明"
             actionLabel={nickname}
-            onAction={() => runAction(() => setNickname(generateNickname()), "score")}
+            onAction={() => runAction(() => setNickname(generateNickname(initialTakenNicknames)), "score")}
             onLabelClick={() => runAction(() => setStep("guide"))}
           />
 
@@ -1430,9 +1463,12 @@ function WaitingRoom({
           <strong>房主正在确认图片牌阵</strong>
         </div>
       )}
-      <IconButton icon={icons.demo} label="打开本机玩家窗口" className="secondary action-button full-width" onClick={() => {
+      <IconButton icon={icons.demo} label="打开本机玩家窗口" className="secondary action-button full-width demo-window-action" onClick={() => {
         playSound();
-        openDemoWindow(snapshot.roomId);
+        openDemoWindow(
+          snapshot.roomId,
+          snapshot.players.filter((player) => player.online).map((player) => player.nickname),
+        );
       }} />
       <div className="player-grid">
         {participants.map(renderPlayerSlot)}

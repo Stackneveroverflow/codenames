@@ -218,7 +218,7 @@ select:disabled {
 }
 
 .lobby-screen {
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto auto auto auto;
   gap: 10px;
 }
 
@@ -1617,6 +1617,14 @@ select {
   grid-template-rows: auto minmax(0, 1fr) auto auto;
 }
 
+.lobby-screen > .demo-window-action {
+  align-self: start;
+}
+
+.lobby-screen > .player-grid {
+  grid-row: 5;
+}
+
 .image-preview-panel {
   min-height: 0;
   display: grid;
@@ -1768,6 +1776,21 @@ select {
 
 .key-cell--assassin::before {
   color: rgba(255, 184, 170, 0.16);
+}
+
+.key-cell--image.key-cell--assassin::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 4;
+  width: 32%;
+  min-width: 18px;
+  max-width: 42px;
+  aspect-ratio: 1 / 1;
+  content: "";
+  border-top-right-radius: inherit;
+  background: linear-gradient(225deg, rgba(0, 0, 0, 0.98) 0 50%, transparent 50%);
+  pointer-events: none;
 }
 
 .key-legend {
@@ -2163,6 +2186,175 @@ select {
     grid-column: 2;
     grid-template-columns: 1fr;
     margin-top: -4px;
+  }
+}
+
+@media (orientation: landscape) and (min-width: 680px) {
+  .app-stage {
+    padding: clamp(8px, 1.6vw, 18px);
+  }
+
+  .app-shell {
+    --landscape-board-size: min(600px, calc(100dvh - 340px), calc(100vw - 480px));
+    --landscape-key-size: min(560px, calc(100dvh - 390px), calc(100vw - 480px));
+    --landscape-preview-size: min(700px, calc(100dvh - 260px), calc(100vw - 430px));
+    width: min(calc(100vw - 24px), 1440px);
+    height: min(calc(100dvh - 36px), 920px);
+    min-height: 0;
+    border-radius: 18px;
+  }
+
+  .top-bar,
+  .room-header {
+    padding: 12px 16px 0;
+  }
+
+  .home-screen,
+  .stack-screen,
+  .lobby-screen,
+  .board-screen {
+    padding: 12px 14px 14px;
+  }
+
+  .room-header + .lobby-screen {
+    height: calc(100% - 96px);
+  }
+
+  .room-header--player + .board-screen {
+    height: calc(100% - 118px);
+  }
+
+  .lobby-screen {
+    grid-template-columns: minmax(0, 1fr) minmax(270px, 360px);
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
+    gap: 10px;
+    overflow: hidden;
+  }
+
+  .lobby-screen > .lobby-stats {
+    grid-column: 1;
+  }
+
+  .lobby-screen > .player-grid {
+    grid-column: 1;
+    grid-row: 2 / span 5;
+    grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
+  }
+
+  .lobby-screen > .host-panel,
+  .lobby-screen > .generation-banner,
+  .lobby-screen > .lobby-controls,
+  .lobby-screen > .error-text,
+  .lobby-screen > .spectator-action,
+  .lobby-screen > .sticky-action {
+    grid-column: 2;
+  }
+
+  .lobby-screen > .demo-window-action {
+    grid-column: 2;
+    align-self: start;
+  }
+
+  .lobby-screen--preview {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    align-items: stretch;
+  }
+
+  .lobby-screen--preview > .lobby-stats {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .lobby-screen--preview > .image-preview-panel {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+  }
+
+  .lobby-screen--preview > .preview-actions,
+  .lobby-screen--preview > .error-text {
+    grid-column: 2;
+  }
+
+  .lobby-screen--preview > .preview-actions {
+    align-self: end;
+  }
+
+  .image-preview-grid {
+    width: min(100%, var(--landscape-preview-size));
+  }
+
+  .board-screen {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+    gap: 10px;
+    align-items: start;
+    overflow: hidden;
+  }
+
+  .feedback-banner {
+    grid-column: 1 / -1;
+  }
+
+  .tab-row {
+    grid-column: 1;
+    grid-row: 2;
+    width: min(100%, var(--landscape-board-size));
+    justify-self: center;
+  }
+
+  .card-grid,
+  .key-wrap {
+    grid-column: 1;
+    grid-row: 3;
+    justify-self: center;
+    align-self: start;
+  }
+
+  .card-grid {
+    width: min(100%, var(--landscape-board-size));
+  }
+
+  .key-wrap {
+    width: min(100%, var(--landscape-key-size));
+  }
+
+  .key-grid {
+    width: 100%;
+  }
+
+  .turn-panel {
+    grid-column: 2;
+    grid-row: 2 / span 2;
+    max-height: 100%;
+    overflow: hidden auto;
+  }
+
+  .board-footer {
+    grid-column: 2;
+    grid-row: 4;
+    grid-template-columns: 1fr;
+    align-self: end;
+  }
+
+  .board-screen > .error-text {
+    grid-column: 2;
+  }
+
+  .public-card,
+  .key-cell,
+  .image-preview-card {
+    overflow: hidden;
+  }
+
+  .public-card img,
+  .key-cell--image img,
+  .image-preview-card img {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    object-fit: cover;
   }
 }
 

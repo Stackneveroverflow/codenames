@@ -232,7 +232,11 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
         }
         try {
           const deck = aiConfig ? await generateAiDeck({ mode: config.gameMode, aiConfig, imageStore, roomId }) : createFallbackDeck(config.gameMode);
-          roomStore.restart(roomId, socket.data.playerId, deck);
+          if (aiConfig && config.gameMode === "image") {
+            roomStore.previewImageDeck(roomId, socket.data.playerId, deck);
+          } else {
+            roomStore.restart(roomId, socket.data.playerId, deck);
+          }
         } catch (error) {
           if (aiConfig) {
             roomStore.setDeckGeneration(roomId, socket.data.playerId, null);

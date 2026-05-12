@@ -165,6 +165,35 @@ describe("RoomStore dealer flow", () => {
     expect(dealt.board?.map((card) => card.content)).toEqual(deck.contents);
   });
 
+  it("moves an already dealt image room back to host preview before confirming a replacement deck", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1", { gameMode: "image" });
+    store.joinRoom(created.roomId, "乙", "socket-2");
+    store.joinRoom(created.roomId, "丙", "socket-3");
+    store.joinRoom(created.roomId, "丁", "socket-4");
+
+    store.startGame(created.roomId, created.playerId, createFallbackDeck("image"));
+    const replacementDeck = {
+      ...createFallbackDeck("image"),
+      contents: createFallbackDeck("image").contents.map((card, index) =>
+        card.type === "image" ? { ...card, imageUrl: `/replacement-${index}.png` } : card,
+      ),
+    };
+
+    store.previewImageDeck(created.roomId, created.playerId, replacementDeck);
+
+    const preview = store.snapshotFor(created.roomId, created.playerId);
+    expect(preview.phase).toBe("lobby");
+    expect(preview.board).toBeNull();
+    expect(preview.deckPreview?.board?.[0]?.content).toEqual(replacementDeck.contents[0]);
+
+    store.confirmImagePreview(created.roomId, created.playerId);
+
+    const dealt = store.snapshotFor(created.roomId, created.playerId);
+    expect(dealt.phase).toBe("dealt");
+    expect(dealt.board?.map((card) => card.content)).toEqual(replacementDeck.contents);
+  });
+
   it("lets only the host replace or confirm an AI image preview", () => {
     const store = new RoomStore();
     const created = store.createRoom("甲", "socket-1", { gameMode: "image" });

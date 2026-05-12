@@ -205,8 +205,8 @@ export class RoomStore {
   previewImageDeck(roomId: string, actorId: string, deck: ValidatedDeck) {
     const room = this.requireRoom(roomId);
     this.requireHost(room, actorId);
-    if (room.phase !== "lobby") {
-      throw new Error("发牌后不可预览牌阵，请先返回等候房间");
+    if (room.phase !== "lobby" && room.phase !== "dealt") {
+      throw new Error("当前状态不可预览牌阵");
     }
     if (room.config.gameMode !== "image") {
       throw new Error("只有图片模式可以预览图片牌阵");
@@ -216,6 +216,7 @@ export class RoomStore {
     }
 
     room.pendingDeck = deck;
+    room.phase = "lobby";
     room.deckPreview = {
       status: "ready",
       message: "图片牌阵已生成，等待房主确认",
