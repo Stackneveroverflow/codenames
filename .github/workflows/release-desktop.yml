@@ -44,7 +44,7 @@ jobs:
 
       - name: Install dependencies
         shell: bash
-        run: corepack pnpm install --frozen-lockfile
+        run: corepack pnpm install --no-frozen-lockfile
 
       - name: Build portable package
         shell: bash
