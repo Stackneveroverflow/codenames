@@ -1,11 +1,11 @@
 {
   "name": "@codenames/desktop",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "private": true,
   "type": "module",
   "main": "./dist/main.cjs",
   "scripts": {
-    "build": "tsc -p tsconfig.json --noEmit && esbuild src/main.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/main.cjs",
+    "build": "tsc -p tsconfig.json --noEmit && esbuild src/main.ts --bundle --platform=node --format=cjs --external:electron --external:sharp --outfile=dist/main.cjs",
     "dev": "pnpm build && electron .",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"

@@ -26,6 +26,9 @@ importers:
       openai:
         specifier: ^6.3.0
         version: 6.34.0(ws@8.18.3)(zod@4.3.6)
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
       socket.io:
         specifier: ^4.8.1
         version: 4.8.3
@@ -42,6 +45,10 @@ importers:
       playwright:
         specifier: ^1.59.1
         version: 1.59.1
+    optionalDependencies:
+      '@img/sharp-win32-x64':
+        specifier: 0.34.5
+        version: 0.34.5
 
   apps/desktop:
     dependencies:
