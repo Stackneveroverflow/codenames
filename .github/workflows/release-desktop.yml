@@ -24,11 +24,11 @@ jobs:
         include:
           - platform: windows
             os: windows-latest
-            build_command: corepack pnpm clean:release && corepack pnpm desktop:build && corepack pnpm exec electron-builder --win portable
+            build_command: corepack pnpm clean:release && corepack pnpm desktop:build && corepack pnpm exec electron-builder --win portable --publish never
             asset_glob: release/*.exe
           - platform: macos
             os: macos-latest
-            build_command: corepack pnpm clean:release && corepack pnpm desktop:build && corepack pnpm exec electron-builder --mac zip --universal
+            build_command: corepack pnpm clean:release && corepack pnpm desktop:build && corepack pnpm exec electron-builder --mac zip --universal --publish never
             asset_glob: release/*.zip
 
     steps:
