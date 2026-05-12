@@ -12,7 +12,38 @@ export type TeamName = (typeof teamNames)[number];
 export const gameModes = ["text", "image"] as const;
 export type GameMode = (typeof gameModes)[number];
 
-export const teamSizes = [4, 5, 6, 7, 8, 9, 10] as const;
+export const aiProviders = ["openai", "volcano", "tongyi", "hunyuan"] as const;
+export type AiProvider = (typeof aiProviders)[number];
+
+export const aiProviderLabels: Record<AiProvider, string> = {
+  openai: "OpenAI",
+  volcano: "火山",
+  tongyi: "通义",
+  hunyuan: "混元",
+};
+
+export const aiTextModelsByProvider: Record<AiProvider, readonly string[]> = {
+  openai: ["gpt-5.4-mini", "gpt-5.4"],
+  volcano: ["doubao-seed-1-6-250615", "doubao-seed-1-6-flash-250615"],
+  tongyi: ["qwen-plus", "qwen-turbo", "qwen-max"],
+  hunyuan: ["hunyuan-turbos-latest", "hunyuan-t1-latest"],
+};
+
+export const aiImageModelsByProvider: Record<AiProvider, readonly string[]> = {
+  openai: ["gpt-image-1.5"],
+  volcano: ["doubao-seedream-4-0-250828", "doubao-seedream-4-5-251128", "doubao-seedream-5-0-260128"],
+  tongyi: ["wan2.5-t2i-preview", "wan2.2-t2i-plus", "wan2.2-t2i-turbo"],
+  hunyuan: ["hunyuan-image-3.0"],
+};
+
+export interface AiDeckConfig {
+  provider: AiProvider;
+  apiKey: string;
+  textModel: string;
+  imageModel: string;
+}
+
+export const teamSizes = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 export type TeamSize = (typeof teamSizes)[number];
 
 export const playerRoles = [
@@ -44,6 +75,7 @@ export interface PlayerState {
   id: string;
   nickname: string;
   role: PlayerRole;
+  spectatorIntent: boolean;
   online: boolean;
   joinedAt: string;
 }
@@ -99,6 +131,18 @@ export interface TurnState {
   deadlineAt: string | null;
 }
 
+export interface DeckGenerationState {
+  active: boolean;
+  message: string;
+}
+
+export interface DeckPreviewState {
+  status: "ready";
+  message: string;
+  board: PublicCardState[] | null;
+  model?: string;
+}
+
 export interface RoomState {
   roomId: string;
   phase: RoomPhase;
@@ -109,15 +153,18 @@ export interface RoomState {
   keyGrid: KeyCellState[] | null;
   teams: GameTeams | null;
   turn: TurnState | null;
+  deckGeneration: DeckGenerationState | null;
+  deckPreview: DeckPreviewState | null;
   activityLog: ActivityEntry[];
   createdAt: string;
   updatedAt: string;
 }
 
-export interface PlayerViewSnapshot extends Omit<RoomState, "keyGrid"> {
+export interface PlayerViewSnapshot extends Omit<RoomState, "keyGrid" | "deckPreview"> {
   selfId: string;
   selfRole: PlayerRole;
   keyGrid?: KeyCellState[] | null;
+  deckPreview?: DeckPreviewState | null;
 }
 
 export interface ValidatedDeck {
@@ -135,11 +182,17 @@ export function findForbiddenClueText(board: PublicCardState[], clueText: string
   if (!normalizedClue) {
     return null;
   }
+  const clueChars = new Set([...normalizedClue].filter((char) => char.trim()));
 
   for (const card of board) {
+    if (card.content.type === "image") {
+      continue;
+    }
     const displayText = cardDisplayText(card).trim();
-    if (displayText && normalizedClue.includes(displayText.toLocaleLowerCase())) {
-      return displayText;
+    for (const char of displayText.toLocaleLowerCase()) {
+      if (char.trim() && clueChars.has(char)) {
+        return char;
+      }
     }
   }
 
@@ -181,13 +234,40 @@ export const roomConfigSchema = z.object({
     z.literal(8),
     z.literal(9),
     z.literal(10),
+    z.literal(11),
+    z.literal(12),
   ]),
   boardSize: z.literal("classic"),
 });
 
+export const aiDeckConfigSchema = z
+  .object({
+    provider: z.enum(aiProviders),
+    apiKey: z.string().trim().min(1).max(400),
+    textModel: z.string().trim().min(1).max(120),
+    imageModel: z.string().trim().min(1).max(120),
+  })
+  .superRefine((value, context) => {
+    if (!aiTextModelsByProvider[value.provider].includes(value.textModel)) {
+      context.addIssue({
+        code: "custom",
+        path: ["textModel"],
+        message: "Unsupported text model for provider",
+      });
+    }
+    if (!aiImageModelsByProvider[value.provider].includes(value.imageModel)) {
+      context.addIssue({
+        code: "custom",
+        path: ["imageModel"],
+        message: "Unsupported image model for provider",
+      });
+    }
+  });
+
 export const createRoomPayloadSchema = z.object({
   nickname: z.string().trim().min(1).max(20),
   config: roomConfigSchema.pick({ gameMode: true, teamSize: true }).partial().optional(),
+  aiConfig: aiDeckConfigSchema.optional(),
 });
 
 export const joinRoomPayloadSchema = z.object({
@@ -205,6 +285,11 @@ export const updateRoomConfigPayloadSchema = z.object({
   config: roomConfigSchema.partial(),
 });
 
+export const setSpectatorPayloadSchema = z.object({
+  roomId: z.string(),
+  spectator: z.boolean(),
+});
+
 export const assignRolePayloadSchema = z.object({
   roomId: z.string(),
   playerId: z.string(),
@@ -215,7 +300,19 @@ export const startGamePayloadSchema = z.object({
   roomId: z.string(),
 });
 
+export const confirmDeckPreviewPayloadSchema = z.object({
+  roomId: z.string(),
+});
+
+export const regenerateDeckPreviewPayloadSchema = z.object({
+  roomId: z.string(),
+});
+
 export const restartGamePayloadSchema = z.object({
+  roomId: z.string(),
+});
+
+export const returnToLobbyPayloadSchema = z.object({
   roomId: z.string(),
 });
 
@@ -239,8 +336,12 @@ export const socketEvents = {
   roomJoin: "room:join",
   roomRejoin: "room:rejoin",
   roomUpdateConfig: "room:update_config",
+  roomSetSpectator: "room:set_spectator",
   gameStart: "game:start",
+  gameConfirmPreview: "game:confirm_preview",
+  gameRegeneratePreview: "game:regenerate_preview",
   gameRestart: "game:restart",
+  gameReturnToLobby: "game:return_to_lobby",
   gameSubmitClue: "game:submit_clue",
   gameGuessCard: "game:guess_card",
   gameEndTurn: "game:end_turn",
@@ -256,8 +357,12 @@ export type ClientEventName =
   | typeof socketEvents.roomJoin
   | typeof socketEvents.roomRejoin
   | typeof socketEvents.roomUpdateConfig
+  | typeof socketEvents.roomSetSpectator
   | typeof socketEvents.gameStart
+  | typeof socketEvents.gameConfirmPreview
+  | typeof socketEvents.gameRegeneratePreview
   | typeof socketEvents.gameRestart
+  | typeof socketEvents.gameReturnToLobby
   | typeof socketEvents.gameSubmitClue
   | typeof socketEvents.gameGuessCard
   | typeof socketEvents.gameEndTurn;

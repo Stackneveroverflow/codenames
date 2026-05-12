@@ -2,14 +2,17 @@ import { createServer } from "node:http";
 
 import cors from "cors";
 import express, { type Express } from "express";
-import OpenAI from "openai";
 import type { Server as HttpServer } from "node:http";
 import { Server } from "socket.io";
 
 import {
   joinRoomPayloadSchema,
   rejoinRoomPayloadSchema,
+  confirmDeckPreviewPayloadSchema,
   restartGamePayloadSchema,
+  regenerateDeckPreviewPayloadSchema,
+  returnToLobbyPayloadSchema,
+  setSpectatorPayloadSchema,
   socketEvents,
   startGamePayloadSchema,
   updateRoomConfigPayloadSchema,
@@ -20,6 +23,7 @@ import {
 } from "@codenames/shared";
 
 import { createFallbackDeck, generateAiDeck } from "./deckService.js";
+import { GeneratedImageStore } from "./generatedImageStore.js";
 import { RoomStore } from "./roomStore.js";
 
 interface AppServer {
@@ -27,6 +31,7 @@ interface AppServer {
   httpServer: HttpServer;
   io: Server;
   roomStore: RoomStore;
+  imageStore: GeneratedImageStore;
 }
 
 export interface HostInfo {
@@ -42,9 +47,18 @@ export interface AppServerOptions {
 export function createAppServer(options: AppServerOptions = {}): AppServer {
   const app = express();
   app.use(cors());
+  const imageStore = new GeneratedImageStore();
   app.get("/health", (_req, res) => res.json({ ok: true }));
   app.get("/host-info", (_req, res) => {
     res.json(options.getHostInfo?.() ?? null);
+  });
+  app.get("/generated-cards/:roomId/:dealId/:cardId.png", (req, res) => {
+    const image = imageStore.getByRoute(req.params.roomId, req.params.dealId, req.params.cardId);
+    if (!image) {
+      res.status(404).json({ message: "Image not found" });
+      return;
+    }
+    res.type(image.contentType).send(image.data);
   });
 
   const httpServer = createServer(app);
@@ -55,7 +69,6 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
   });
 
   const roomStore = new RoomStore();
-  const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : undefined;
 
   function emitSnapshot(roomId: string) {
     const room = io.sockets.adapter.rooms.get(roomId);
@@ -92,8 +105,8 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
 
     socket.on(
       socketEvents.roomCreate,
-      handle(createRoomPayloadSchema, ({ nickname, config }) => {
-        const created = roomStore.createRoom(nickname, socket.id, config ?? {});
+      handle(createRoomPayloadSchema, ({ nickname, config, aiConfig }) => {
+        const created = roomStore.createRoom(nickname, socket.id, config ?? {}, aiConfig ?? null);
         socket.data.playerId = created.playerId;
         socket.data.roomId = created.roomId;
         socket.join(created.roomId);
@@ -135,11 +148,72 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
     );
 
     socket.on(
+      socketEvents.roomSetSpectator,
+      handle(setSpectatorPayloadSchema, ({ roomId, spectator }) => {
+        roomStore.setSpectatorIntent(roomId, socket.data.playerId, spectator);
+        emitSnapshot(roomId);
+      }),
+    );
+
+    socket.on(
       socketEvents.gameStart,
       handle(startGamePayloadSchema, async ({ roomId }) => {
         const config = roomStore.getConfig(roomId);
-        const deck = config.deckMode === "ai" ? await generateAiDeck(openai, config.gameMode) : createFallbackDeck(config.gameMode);
-        roomStore.startGame(roomId, socket.data.playerId, deck);
+        const aiConfig = roomStore.getAiConfig(roomId);
+        if (aiConfig) {
+          roomStore.setDeckGeneration(roomId, socket.data.playerId, {
+            active: true,
+            message: config.gameMode === "image" ? "AI 正在生成 5x5 图片牌阵" : "AI 正在生成 25 个词牌",
+          });
+          emitSnapshot(roomId);
+        }
+        try {
+          const deck = aiConfig ? await generateAiDeck({ mode: config.gameMode, aiConfig, imageStore, roomId }) : createFallbackDeck(config.gameMode);
+          if (aiConfig && config.gameMode === "image") {
+            roomStore.previewImageDeck(roomId, socket.data.playerId, deck);
+          } else {
+            roomStore.startGame(roomId, socket.data.playerId, deck);
+          }
+        } catch (error) {
+          if (aiConfig) {
+            roomStore.setDeckGeneration(roomId, socket.data.playerId, null);
+            emitSnapshot(roomId);
+          }
+          throw error;
+        }
+        emitSnapshot(roomId);
+      }),
+    );
+
+    socket.on(
+      socketEvents.gameRegeneratePreview,
+      handle(regenerateDeckPreviewPayloadSchema, async ({ roomId }) => {
+        const config = roomStore.getConfig(roomId);
+        const aiConfig = roomStore.getAiConfig(roomId);
+        if (!aiConfig || config.gameMode !== "image") {
+          throw new Error("当前房间没有可重新生成的图片大模型牌库");
+        }
+        roomStore.setDeckGeneration(roomId, socket.data.playerId, {
+          active: true,
+          message: "AI 正在重新生成 5x5 图片牌阵",
+        });
+        emitSnapshot(roomId);
+        try {
+          const deck = await generateAiDeck({ mode: config.gameMode, aiConfig, imageStore, roomId });
+          roomStore.previewImageDeck(roomId, socket.data.playerId, deck);
+        } catch (error) {
+          roomStore.setDeckGeneration(roomId, socket.data.playerId, null);
+          emitSnapshot(roomId);
+          throw error;
+        }
+        emitSnapshot(roomId);
+      }),
+    );
+
+    socket.on(
+      socketEvents.gameConfirmPreview,
+      handle(confirmDeckPreviewPayloadSchema, ({ roomId }) => {
+        roomStore.confirmImagePreview(roomId, socket.data.playerId);
         emitSnapshot(roomId);
       }),
     );
@@ -148,8 +222,32 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
       socketEvents.gameRestart,
       handle(restartGamePayloadSchema, async ({ roomId }) => {
         const config = roomStore.getConfig(roomId);
-        const deck = config.deckMode === "ai" ? await generateAiDeck(openai, config.gameMode) : createFallbackDeck(config.gameMode);
-        roomStore.restart(roomId, socket.data.playerId, deck);
+        const aiConfig = roomStore.getAiConfig(roomId);
+        if (aiConfig) {
+          roomStore.setDeckGeneration(roomId, socket.data.playerId, {
+            active: true,
+            message: config.gameMode === "image" ? "AI 正在重新生成 5x5 图片牌阵" : "AI 正在重新生成 25 个词牌",
+          });
+          emitSnapshot(roomId);
+        }
+        try {
+          const deck = aiConfig ? await generateAiDeck({ mode: config.gameMode, aiConfig, imageStore, roomId }) : createFallbackDeck(config.gameMode);
+          roomStore.restart(roomId, socket.data.playerId, deck);
+        } catch (error) {
+          if (aiConfig) {
+            roomStore.setDeckGeneration(roomId, socket.data.playerId, null);
+            emitSnapshot(roomId);
+          }
+          throw error;
+        }
+        emitSnapshot(roomId);
+      }),
+    );
+
+    socket.on(
+      socketEvents.gameReturnToLobby,
+      handle(returnToLobbyPayloadSchema, ({ roomId }) => {
+        roomStore.returnToLobby(roomId, socket.data.playerId);
         emitSnapshot(roomId);
       }),
     );
@@ -189,5 +287,5 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
 
   setInterval(() => roomStore.cleanup(), 60_000).unref();
 
-  return { app, httpServer, io, roomStore };
+  return { app, httpServer, io, roomStore, imageStore };
 }

@@ -1,7 +1,7 @@
 {
   "name": "codenames-online",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.9.0",
   "description": "行动代号线下发牌器",
   "author": "codenames",
   "type": "module",
@@ -13,7 +13,9 @@
     "desktop:dev": "pnpm desktop:build && electron .",
     "desktop:pack": "pnpm desktop:build && electron-builder --dir",
     "desktop:dist": "pnpm desktop:build && electron-builder",
-    "dev": "pnpm --parallel --filter @codenames/server --filter @codenames/web dev",
+    "dev": "pnpm --parallel --filter @codenames/server --filter @codenames/web --filter @codenames/entry dev",
+    "dev:entry": "pnpm --parallel --filter @codenames/server --filter @codenames/web --filter @codenames/entry dev",
+    "entry:dev": "pnpm --filter @codenames/entry dev",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint"
   },
