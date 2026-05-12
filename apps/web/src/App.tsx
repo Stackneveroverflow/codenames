@@ -7,6 +7,7 @@ import { aiImageModelsByProvider, aiProviderLabels, aiProviders, aiTextModelsByP
 import { IconButton, icons } from "./components/IconButton";
 import { PhaserBoardEffects } from "./components/PhaserBoardEffects";
 import { useGsapEntrance } from "./hooks/useGsapEntrance";
+import { canCopyInviteLink, entryJoinUrl, type HostInfo } from "./inviteLinks";
 import { playSound } from "./lib/audio";
 import { getServerUrl, getSocket } from "./lib/socket";
 import { appVersionLabel } from "./version";
@@ -19,7 +20,6 @@ type StoredIdentity = Record<string, { playerId: string }>;
 type HomeStep = "home" | "mode" | "headcount" | "join" | "guide";
 type BoardTab = "public" | "key";
 type DeckSource = "fallback" | "ai";
-type HostInfo = { port: number; localUrl: string; lanUrls: string[] };
 type TurnTimerInfo = {
   active: boolean;
   expired: boolean;
@@ -498,30 +498,6 @@ async function copyText(text: string) {
     return;
   }
   copyTextFallback(text);
-}
-
-function isDevEntryPort(port: string) {
-  return port === "5173" || port === "5174";
-}
-
-function entryJoinUrl(roomId: string, hostInfo?: HostInfo | null) {
-  const target = new URL(window.location.href);
-
-  if (isDevEntryPort(target.port)) {
-    target.port = "5174";
-    target.pathname = "/";
-  } else {
-    const sharedBase = hostInfo?.lanUrls[0] ?? target.origin;
-    const sharedTarget = new URL(sharedBase);
-    target.protocol = sharedTarget.protocol;
-    target.host = sharedTarget.host;
-    target.pathname = "/entry/";
-  }
-
-  target.search = "";
-  target.hash = "";
-  target.searchParams.set("join", roomId);
-  return target.toString();
 }
 
 function HomePage() {
@@ -1283,6 +1259,7 @@ function RoomHeader({
 
 function RoomCodeCopyButton({ roomId, hostInfo }: { roomId: string; hostInfo: HostInfo | null }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const canCopy = canCopyInviteLink(window.location.href, hostInfo);
 
   useEffect(() => {
     if (copyState === "idle") {
@@ -1293,7 +1270,10 @@ function RoomCodeCopyButton({ roomId, hostInfo }: { roomId: string; hostInfo: Ho
   }, [copyState]);
 
   async function copyRoomId() {
-    const inviteUrl = entryJoinUrl(roomId, hostInfo);
+    if (!canCopy) {
+      return;
+    }
+    const inviteUrl = entryJoinUrl(roomId, window.location.href, hostInfo);
     try {
       await copyText(inviteUrl);
       setCopyState("copied");
@@ -1310,7 +1290,9 @@ function RoomCodeCopyButton({ roomId, hostInfo }: { roomId: string; hostInfo: Ho
     }
   }
 
-  return <IconButton icon={icons.copy} label={copyState === "copied" ? "已复制" : copyState === "error" ? "失败" : "复制"} className="secondary copy-button room-code-copy" onClick={copyRoomId} />;
+  const label = copyState === "copied" ? "已复制" : copyState === "error" ? "失败" : canCopy ? "复制" : hostInfo ? "无局域网" : "加载中";
+
+  return <IconButton icon={icons.copy} label={label} className="secondary copy-button room-code-copy" disabled={!canCopy} onClick={copyRoomId} />;
 }
 
 function GameGuideModal({ snapshot, onClose }: { snapshot?: PlayerViewSnapshot; onClose: () => void }) {

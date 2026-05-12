@@ -36,6 +36,14 @@ function attachWebClient(webApp: express.Express, webDist: string, entryDist: st
   });
 }
 
+function entryUrl(hostInfo: HostInfo, route = "/entry/") {
+  return new URL(route, `http://127.0.0.1:${hostInfo.port}`).toString();
+}
+
+function shareEntryUrl(hostInfo: HostInfo) {
+  return new URL("/entry/", hostInfo.lanUrls[0] ?? hostInfo.localUrl).toString();
+}
+
 function createPlayerWindow(hostInfo: HostInfo, route = "/entry/") {
   const window = new BrowserWindow({
     width: 430,
@@ -58,7 +66,7 @@ function createPlayerWindow(hostInfo: HostInfo, route = "/entry/") {
     return { action: "deny" };
   });
 
-  window.loadURL(`http://127.0.0.1:${hostInfo.port}${route}`);
+  window.loadURL(entryUrl(hostInfo, route));
   return window;
 }
 
@@ -73,9 +81,9 @@ function installMenu(hostInfo: HostInfo) {
           click: () => createPlayerWindow(hostInfo),
         },
         {
-          label: "复制本机地址",
+          label: "复制入口地址",
           click: () => {
-            clipboard.writeText(hostInfo.lanUrls[0] ?? hostInfo.localUrl);
+            clipboard.writeText(shareEntryUrl(hostInfo));
           },
         },
         { type: "separator" },
