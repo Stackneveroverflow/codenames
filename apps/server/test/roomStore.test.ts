@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createRoomPayloadSchema } from "@codenames/shared";
+
 import { createFallbackDeck } from "../src/deckService";
 import { RoomStore } from "../src/roomStore";
 
@@ -29,6 +31,22 @@ describe("RoomStore dealer flow", () => {
     expect(snapshot.phase).toBe("dealt");
   });
 
+  it("always starts with red team holding one extra key card", () => {
+    const store = new RoomStore();
+    const { created } = createFourPlayerRoom(store);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+
+    store.startGame(created.roomId, created.playerId, createFallbackDeck("text"));
+
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+    const captain = snapshot.players.find((player) => player.role === "red_spymaster" || player.role === "blue_spymaster")!;
+    const keyGrid = store.snapshotFor(created.roomId, captain.id).keyGrid!;
+    expect(snapshot.turn?.currentTeam).toBe("red");
+    expect(keyGrid.filter((cell) => cell.owner === "red")).toHaveLength(9);
+    expect(keyGrid.filter((cell) => cell.owner === "blue")).toHaveLength(8);
+    expect(snapshot.activityLog.at(-1)?.message).toContain("红队多一张关键牌");
+  });
+
   it("stores the chosen room config at creation", () => {
     const store = new RoomStore();
     const created = store.createRoom("甲", "socket-1", { gameMode: "image", teamSize: 10 });
@@ -36,6 +54,29 @@ describe("RoomStore dealer flow", () => {
 
     expect(snapshot.config.gameMode).toBe("image");
     expect(snapshot.config.teamSize).toBe(10);
+  });
+
+  it("accepts twelve game players in room config", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1", { gameMode: "text", teamSize: 12 });
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+
+    expect(snapshot.config.teamSize).toBe(12);
+    expect(createRoomPayloadSchema.parse({ nickname: "甲", config: { teamSize: 12 } }).config?.teamSize).toBe(12);
+  });
+
+  it("keeps the first twelve players in the game before queuing spectators", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("玩家1", "socket-1", { teamSize: 12 });
+
+    for (let index = 2; index <= 12; index += 1) {
+      store.joinRoom(created.roomId, `玩家${index}`, `socket-${index}`);
+    }
+    const spectator = store.joinRoom(created.roomId, "玩家13", "socket-13");
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+
+    expect(snapshot.players.filter((player) => !player.spectatorIntent)).toHaveLength(12);
+    expect(store.snapshotFor(created.roomId, spectator.playerId).players.find((player) => player.id === spectator.playerId)?.spectatorIntent).toBe(true);
   });
 
   it("stores image-mode host AI config privately without exposing the API key in snapshots", () => {

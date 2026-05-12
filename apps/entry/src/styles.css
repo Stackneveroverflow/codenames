@@ -63,3 +63,20 @@ button {
   outline: 2px solid var(--paper);
   outline-offset: 4px;
 }
+
+.entry-version {
+  position: fixed;
+  right: 16px;
+  bottom: 12px;
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 226, 168, 0.22);
+  border-radius: 999px;
+  background: rgba(9, 8, 7, 0.62);
+  color: rgba(255, 241, 207, 0.78);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0;
+  pointer-events: none;
+}

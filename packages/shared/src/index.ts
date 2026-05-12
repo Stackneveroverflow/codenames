@@ -43,7 +43,7 @@ export interface AiDeckConfig {
   imageModel: string;
 }
 
-export const teamSizes = [4, 5, 6, 7, 8, 9, 10] as const;
+export const teamSizes = [4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 export type TeamSize = (typeof teamSizes)[number];
 
 export const playerRoles = [
@@ -234,6 +234,8 @@ export const roomConfigSchema = z.object({
     z.literal(8),
     z.literal(9),
     z.literal(10),
+    z.literal(11),
+    z.literal(12),
   ]),
   boardSize: z.literal("classic"),
 });

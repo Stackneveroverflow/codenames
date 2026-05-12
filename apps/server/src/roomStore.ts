@@ -358,7 +358,7 @@ export class RoomStore {
   }
 
   private dealRoom(room: StoredRoom, deck: ValidatedDeck, actionLabel: string) {
-    const startingTeam: TeamName = Math.random() > 0.5 ? "red" : "blue";
+    const startingTeam: TeamName = "red";
     const teams = this.assignOnlineTeams(room);
     const deal = createDeal(deck.contents, room.config.gameMode, startingTeam);
     room.phase = "dealt";

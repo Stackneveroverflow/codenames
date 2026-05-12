@@ -1019,8 +1019,8 @@ select:disabled {
 
 .headcount-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 5px;
   align-content: start;
 }
 
@@ -1077,8 +1077,8 @@ select {
 
 .inline-count-row {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 5px;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 4px;
 }
 
 .inline-count {
@@ -1325,7 +1325,7 @@ select {
 }
 
 .clue-form {
-  grid-template-columns: minmax(0, 1fr) 58px auto;
+  grid-template-columns: minmax(0, 0.82fr) 76px auto;
   align-items: center;
 }
 
@@ -1348,6 +1348,8 @@ select {
 }
 
 .count-input {
+  min-width: 76px;
+  padding-inline: 8px;
   text-align: center;
 }
 
@@ -2205,6 +2207,28 @@ select {
   .guide-card {
     display: none;
   }
+}
+
+.home-screen--versioned {
+  padding-bottom: 42px;
+}
+
+.app-version {
+  position: absolute;
+  right: 16px;
+  bottom: 10px;
+  z-index: 4;
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 226, 168, 0.22);
+  border-radius: 999px;
+  background: rgba(9, 8, 7, 0.62);
+  color: rgba(255, 241, 207, 0.78);
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0;
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

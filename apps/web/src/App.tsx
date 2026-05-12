@@ -2,13 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 
 import type { AiProvider, CardOwner, GameMode, KeyCellState, PlayerRole, PlayerState, PlayerViewSnapshot, RoomConfig, TeamName, TeamSize } from "@codenames/shared";
-import { aiImageModelsByProvider, aiProviderLabels, aiProviders, aiTextModelsByProvider, findForbiddenClueText, socketEvents } from "@codenames/shared";
+import { aiImageModelsByProvider, aiProviderLabels, aiProviders, aiTextModelsByProvider, findForbiddenClueText, socketEvents, teamSizes } from "@codenames/shared";
 
 import { IconButton, icons } from "./components/IconButton";
 import { PhaserBoardEffects } from "./components/PhaserBoardEffects";
 import { useGsapEntrance } from "./hooks/useGsapEntrance";
 import { playSound } from "./lib/audio";
 import { getServerUrl, getSocket } from "./lib/socket";
+import { appVersionLabel } from "./version";
+import { victoryTipsForRole } from "./victoryTips";
 
 const storageKey = "codenames-dealer:identity";
 const durableStorageKey = "codenames-dealer:durable-identity";
@@ -193,7 +195,7 @@ const nicknameParts = [
   "知微",
   "竹青",
 ];
-const teamSizeOptions: TeamSize[] = [4, 5, 6, 7, 8, 9, 10];
+const teamSizeOptions: TeamSize[] = [...teamSizes];
 
 const modeLabels: Record<GameMode, string> = {
   text: "文字情报",
@@ -621,7 +623,7 @@ function HomePage() {
           />
 
           {step === "home" && (
-            <section className="home-screen">
+            <section className="home-screen home-screen--versioned">
               <div className="hero-copy" data-animate="panel">
                 <p className="eyebrow">Cinematic Party Game</p>
                 <h1>行动代号</h1>
@@ -633,6 +635,7 @@ function HomePage() {
                 <IconButton icon={icons.key} label="加入房间" className="secondary action-button" onClick={() => runAction(() => setStep("join"))} />
               </div>
               <HostPanel hostInfo={hostInfo} compact />
+              <VersionBadge />
             </section>
           )}
 
@@ -737,6 +740,14 @@ function TopBar({ label, actionLabel, onAction, onLabelClick }: { label: string;
       )}
       <IconButton icon={icons.refresh} label={actionLabel} className="ghost-button top-button" onClick={onAction} />
     </header>
+  );
+}
+
+function VersionBadge() {
+  return (
+    <span className="app-version" aria-label="当前版本">
+      {appVersionLabel}
+    </span>
   );
 }
 
@@ -1302,15 +1313,7 @@ function VictoryTips({ snapshot }: { snapshot: PlayerViewSnapshot }) {
   const self = selfPlayer(snapshot);
   const role = self?.role ?? snapshot.selfRole;
   const team = teamForRole(role);
-  const roleType = role.endsWith("_spymaster") ? "spymaster" : role.endsWith("_operatives") ? "operative" : "spectator";
-  const teamName = team ? teamLabels[team] : "行动小队";
-  const title = roleType === "spymaster" ? `${teamName}队长获胜技巧` : roleType === "operative" ? `${teamName}队员获胜技巧` : "旁观者提示";
-  const tips =
-    roleType === "spymaster"
-      ? [`优先串联${teamName}剩余牌，线索数量宁少勿冒险。`, "给线索前先扫刺客和对方牌，避免把队员引向危险区域。", "队员犹豫时不要补充暗示，只靠下一轮线索修正方向。"]
-      : roleType === "operative"
-        ? [`先找最符合线索的${teamName}牌，不确定时及时结束回合。`, "猜牌前排除刺客和明显对方牌，别为了多猜一张扩大风险。", "多名队员意见不一致时，以线索数量和队长过往风格收敛选择。"]
-        : ["只观察公共信息，不暗示答案、颜色或危险牌。", "结算前不要用表情、语气或动作影响任一队判断。", "需要讲解规则时，只解释通用规则，不评价当前牌阵。"];
+  const { title, tips } = victoryTipsForRole(role);
 
   return (
     <article className={`guide-block victory-tips${team ? ` victory-tips--${team}` : ""}`} data-animate="card">
@@ -1486,8 +1489,15 @@ function BoardRoom({
   const canSubmitClue = activeIsSelf && turn?.phase === "clue";
   const canGuess = activeIsSelf && turn?.phase === "guess";
   const forbiddenClueText = useMemo(() => findForbiddenClueText(cards, clue), [cards, clue]);
+  const clueCountMax = turn ? turn.remainingByTeam[turn.currentTeam] : 0;
   const selectedClueCount = count === "" ? null : Number(count);
-  const canSubmitCurrentClue = canSubmitClue && Boolean(clue.trim()) && selectedClueCount !== null && !forbiddenClueText;
+  const canSubmitCurrentClue =
+    canSubmitClue &&
+    Boolean(clue.trim()) &&
+    selectedClueCount !== null &&
+    selectedClueCount >= 0 &&
+    selectedClueCount <= clueCountMax &&
+    !forbiddenClueText;
   const timeExpired = timerInfo.expired;
   const redPlayers = teamPlayers(snapshot, "red");
   const bluePlayers = teamPlayers(snapshot, "blue");
@@ -1522,7 +1532,11 @@ function BoardRoom({
     if (!Number.isFinite(parsed)) {
       return;
     }
-    setCount(String(Math.max(0, Math.min(9, Math.trunc(parsed)))));
+    if (parsed < 0) {
+      setCount("");
+      return;
+    }
+    setCount(String(Math.min(clueCountMax, Math.trunc(parsed))));
   }
 
   function submitCurrentClue() {
@@ -1606,7 +1620,7 @@ function BoardRoom({
           <div className="clue-entry">
             <div className="clue-form">
               <input value={clue} onChange={(event) => setClue(event.target.value)} placeholder={canSubmitClue ? "输入线索" : `等待 ${nicknameFor(snapshot, turn.activePlayerId)} 给线索`} maxLength={20} disabled={!canSubmitClue} />
-              <input className="count-input" type="number" min={0} max={9} step={1} value={count} onChange={(event) => updateClueCount(event.target.value)} placeholder="数量" disabled={!canSubmitClue} />
+              <input className="count-input" type="number" min={0} max={clueCountMax} step={1} value={count} onChange={(event) => updateClueCount(event.target.value)} placeholder="数量" disabled={!canSubmitClue} />
               <IconButton icon={icons.key} label="提交" className="primary action-button small-button" disabled={!canSubmitCurrentClue} onClick={submitCurrentClue} />
             </div>
             {canSubmitClue && forbiddenClueText && <p className="clue-warning">线索不能包含牌阵中出现的字：{forbiddenClueText}，请重新输入</p>}
