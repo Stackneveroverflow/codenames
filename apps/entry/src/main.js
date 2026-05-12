@@ -6,7 +6,9 @@ const appVersionLabel = `v${packageJson.version}`;
 
 function targetGameUrl() {
   const target = new URL(window.location.href);
-  target.port = "5173";
+  if (target.port === "5174") {
+    target.port = "5173";
+  }
   target.pathname = "/";
   target.search = window.location.search;
   target.hash = "";

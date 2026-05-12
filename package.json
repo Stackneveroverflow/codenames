@@ -1,7 +1,7 @@
 {
   "name": "codenames-online",
   "private": true,
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "行动代号线下发牌器",
   "author": "codenames",
   "type": "module",
@@ -9,10 +9,11 @@
   "packageManager": "pnpm@10.18.0",
   "scripts": {
     "build": "pnpm -r build",
-    "desktop:build": "pnpm -r --filter @codenames/shared --filter @codenames/game-core --filter @codenames/server --filter @codenames/web --filter @codenames/desktop build",
+    "clean:release": "node -e \"require('node:fs').rmSync('release',{recursive:true,force:true})\"",
+    "desktop:build": "pnpm -r --filter @codenames/shared --filter @codenames/game-core --filter @codenames/server --filter @codenames/web --filter @codenames/entry --filter @codenames/desktop build",
     "desktop:dev": "pnpm desktop:build && electron .",
-    "desktop:pack": "pnpm desktop:build && electron-builder --dir",
-    "desktop:dist": "pnpm desktop:build && electron-builder",
+    "desktop:pack": "pnpm clean:release && pnpm desktop:build && electron-builder --dir",
+    "desktop:dist": "pnpm clean:release && pnpm desktop:build && electron-builder",
     "dev": "pnpm --parallel --filter @codenames/server --filter @codenames/web --filter @codenames/entry dev",
     "dev:entry": "pnpm --parallel --filter @codenames/server --filter @codenames/web --filter @codenames/entry dev",
     "entry:dev": "pnpm --filter @codenames/entry dev",
@@ -46,6 +47,7 @@
     "files": [
       "apps/desktop/dist/**/*",
       "apps/web/dist/**/*",
+      "apps/entry/dist/**/*",
       "apps/server/dist/**/*",
       "packages/shared/dist/**/*",
       "packages/game-core/dist/**/*",
@@ -53,9 +55,9 @@
     ],
     "asar": true,
     "win": {
+      "artifactName": "codenames-${version}-windows-${arch}.${ext}",
       "target": [
-        "portable",
-        "nsis"
+        "portable"
       ]
     },
     "linux": {
@@ -65,14 +67,11 @@
       "category": "Game"
     },
     "mac": {
+      "artifactName": "codenames-${version}-macos-${arch}.${ext}",
       "target": [
-        "dmg"
+        "zip"
       ],
       "category": "public.app-category.games"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
     }
   },
   "pnpm": {

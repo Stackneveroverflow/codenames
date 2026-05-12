@@ -19,14 +19,24 @@ function resolveWebDist() {
   return path.resolve(desktopDistDir, "../../web/dist");
 }
 
-function attachWebClient(webApp: express.Express, webDist: string) {
+function resolveEntryDist() {
+  return path.resolve(desktopDistDir, "../../entry/dist");
+}
+
+function attachWebClient(webApp: express.Express, webDist: string, entryDist: string) {
+  webApp.use("/assets", express.static(path.join(entryDist, "assets")));
+  webApp.use("/entry", express.static(entryDist));
+  webApp.get(/^\/entry(?:\/.*)?$/, (_req, res) => {
+    res.sendFile(path.join(entryDist, "index.html"));
+  });
+
   webApp.use(express.static(webDist));
   webApp.get(/.*/, (_req, res) => {
     res.sendFile(path.join(webDist, "index.html"));
   });
 }
 
-function createPlayerWindow(hostInfo: HostInfo, route = "/") {
+function createPlayerWindow(hostInfo: HostInfo, route = "/entry/") {
   const window = new BrowserWindow({
     width: 430,
     height: 900,
@@ -110,12 +120,12 @@ function listen(httpServer: HttpServer, port: number) {
   });
 }
 
-async function startEmbeddedServer(webDist: string) {
+async function startEmbeddedServer(webDist: string, entryDist: string) {
   for (let offset = 0; offset < 50; offset += 1) {
     const port = DEFAULT_PORT + offset;
     const hostInfo = createHostInfo(port);
     const embeddedServer = createAppServer({ getHostInfo: () => hostInfo });
-    attachWebClient(embeddedServer.app, webDist);
+    attachWebClient(embeddedServer.app, webDist, entryDist);
 
     try {
       await listen(embeddedServer.httpServer, port);
@@ -136,7 +146,8 @@ async function main() {
   await app.whenReady();
 
   const webDist = resolveWebDist();
-  const { hostInfo } = await startEmbeddedServer(webDist);
+  const entryDist = resolveEntryDist();
+  const { hostInfo } = await startEmbeddedServer(webDist, entryDist);
 
   installMenu(hostInfo);
   createPlayerWindow(hostInfo);
