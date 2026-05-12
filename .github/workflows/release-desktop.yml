@@ -1,4 +1,4 @@
-name: Release desktop apps
+name: Release Windows desktop app
 
 on:
   push:
@@ -15,21 +15,9 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build ${{ matrix.platform }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: windows
-            os: windows-latest
-            build_command: corepack pnpm clean:release && corepack pnpm desktop:build && corepack pnpm exec electron-builder --win portable --publish never
-            asset_glob: release/*.exe
-          - platform: macos
-            os: macos-latest
-            build_command: corepack pnpm clean:release && corepack pnpm desktop:build && corepack pnpm exec electron-builder --mac zip --universal --publish never
-            asset_glob: release/*.zip
+  build-windows:
+    name: Build Windows portable exe
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v6
@@ -46,21 +34,21 @@ jobs:
         shell: bash
         run: corepack pnpm install --frozen-lockfile
 
-      - name: Build portable package
+      - name: Build portable exe
         shell: bash
-        run: ${{ matrix.build_command }}
+        run: corepack pnpm clean:release && corepack pnpm desktop:build && corepack pnpm exec electron-builder --win portable --publish never
 
-      - name: Upload portable package
+      - name: Upload exe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: codenames-${{ matrix.platform }}
-          path: ${{ matrix.asset_glob }}
+          name: codenames-windows-portable
+          path: release/*.exe
           if-no-files-found: error
 
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-windows
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -69,21 +57,21 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Download portable packages
+      - name: Download exe artifact
         uses: actions/download-artifact@v5
         with:
+          name: codenames-windows-portable
           path: dist
-          merge-multiple: true
 
-      - name: Publish release assets
+      - name: Publish exe only
         shell: bash
         run: |
           ls -la dist
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" dist/* --clobber
+            gh release upload "$RELEASE_TAG" dist/*.exe --clobber
           else
-            gh release create "$RELEASE_TAG" dist/* \
+            gh release create "$RELEASE_TAG" dist/*.exe \
               --target "$GITHUB_SHA" \
               --title "$RELEASE_TAG" \
-              --notes "行动代号桌面便携版：Windows .exe 和 macOS .zip。"
+              --notes "行动代号 Windows 便携版，只上传 .exe 文件。"
           fi
