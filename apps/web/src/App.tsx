@@ -500,10 +500,24 @@ async function copyText(text: string) {
   copyTextFallback(text);
 }
 
-function entryJoinUrl(roomId: string) {
+function isDevEntryPort(port: string) {
+  return port === "5173" || port === "5174";
+}
+
+function entryJoinUrl(roomId: string, hostInfo?: HostInfo | null) {
   const target = new URL(window.location.href);
-  target.port = "5174";
-  target.pathname = "/";
+
+  if (isDevEntryPort(target.port)) {
+    target.port = "5174";
+    target.pathname = "/";
+  } else {
+    const sharedBase = hostInfo?.lanUrls[0] ?? target.origin;
+    const sharedTarget = new URL(sharedBase);
+    target.protocol = sharedTarget.protocol;
+    target.host = sharedTarget.host;
+    target.pathname = "/entry/";
+  }
+
   target.search = "";
   target.hash = "";
   target.searchParams.set("join", roomId);
@@ -1141,7 +1155,7 @@ function RoomPage() {
 
   return (
     <Shell scopeRef={scopeRef}>
-      <RoomHeader snapshot={snapshot} timerInfo={loadedTimerInfo} onShowGuide={() => setGuideOpen(true)} />
+      <RoomHeader snapshot={snapshot} timerInfo={loadedTimerInfo} hostInfo={hostInfo} onShowGuide={() => setGuideOpen(true)} />
 
       {snapshot.phase === "lobby" ? (
         <WaitingRoom
@@ -1195,7 +1209,17 @@ function RoomPage() {
   );
 }
 
-function RoomHeader({ snapshot, timerInfo, onShowGuide }: { snapshot: PlayerViewSnapshot; timerInfo: TurnTimerInfo; onShowGuide: () => void }) {
+function RoomHeader({
+  snapshot,
+  timerInfo,
+  hostInfo,
+  onShowGuide,
+}: {
+  snapshot: PlayerViewSnapshot;
+  timerInfo: TurnTimerInfo;
+  hostInfo: HostInfo | null;
+  onShowGuide: () => void;
+}) {
   if (snapshot.phase === "lobby") {
     return (
       <header className="room-header">
@@ -1203,7 +1227,7 @@ function RoomHeader({ snapshot, timerInfo, onShowGuide }: { snapshot: PlayerView
           <p className="eyebrow">Room Code</p>
           <div className="room-code-row">
             <h1>{snapshot.roomId}</h1>
-            <RoomCodeCopyButton roomId={snapshot.roomId} />
+            <RoomCodeCopyButton roomId={snapshot.roomId} hostInfo={hostInfo} />
           </div>
         </div>
         <div className="room-header-actions">
@@ -1257,7 +1281,7 @@ function RoomHeader({ snapshot, timerInfo, onShowGuide }: { snapshot: PlayerView
   );
 }
 
-function RoomCodeCopyButton({ roomId }: { roomId: string }) {
+function RoomCodeCopyButton({ roomId, hostInfo }: { roomId: string; hostInfo: HostInfo | null }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 
   useEffect(() => {
@@ -1269,7 +1293,7 @@ function RoomCodeCopyButton({ roomId }: { roomId: string }) {
   }, [copyState]);
 
   async function copyRoomId() {
-    const inviteUrl = entryJoinUrl(roomId);
+    const inviteUrl = entryJoinUrl(roomId, hostInfo);
     try {
       await copyText(inviteUrl);
       setCopyState("copied");
