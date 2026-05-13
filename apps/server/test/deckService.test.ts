@@ -16,7 +16,7 @@ const aiConfig = {
   provider: "openai" as const,
   apiKey: "sk-test",
   textModel: "gpt-5.4-mini",
-  imageModel: "gpt-image-1.5",
+  imageModel: "gpt-image-2",
 };
 
 describe("deckService", () => {
@@ -192,6 +192,80 @@ describe("deckService", () => {
     expect(firstPrompt).not.toBe(secondPrompt);
     expect(firstPrompt).toContain("Random seed");
     expect(secondPrompt).toContain("Random seed");
+  });
+
+  it("uses OpenAI ImageGen2 without legacy response_format", () => {
+    const request = imageGenerationRequestOptions(aiConfig, "prompt");
+
+    expect(request).toMatchObject({
+      model: "gpt-image-2",
+      prompt: "prompt",
+      n: 1,
+      size: "2048x2048",
+    });
+    expect(request).not.toHaveProperty("response_format");
+  });
+
+  it("calls the synchronous Qwen image endpoint for Qwen Image 2.0 Pro", async () => {
+    const imageStore = new GeneratedImageStore();
+    const gridSvg = Buffer.from(`
+      <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">
+        <rect width="512" height="512" fill="#e0c36b"/>
+        ${Array.from({ length: 25 }, (_, index) => {
+          const x = (index % 5) * 102;
+          const y = Math.floor(index / 5) * 102;
+          return `<rect x="${x + 8}" y="${y + 8}" width="86" height="86" fill="#333333"/>`;
+        }).join("")}
+      </svg>
+    `);
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const target = String(url);
+      if (target.includes("/multimodal-generation/generation")) {
+        return new Response(
+          JSON.stringify({
+            output: {
+              choices: [
+                {
+                  message: {
+                    content: [{ image: "https://dashscope-result.aliyuncs.com/qwen-grid.png" }],
+                  },
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(gridSvg, { status: 200 });
+    });
+
+    const deck = await generateAiDeck({
+      mode: "image",
+      aiConfig: {
+        provider: "tongyi",
+        apiKey: "sk-test",
+        textModel: "qwen-plus",
+      imageModel: "qwen-image-2.0-pro-2026-04-22",
+      },
+      imageStore,
+      roomId: "ROOM1",
+      fetchImpl: fetchMock as never,
+    });
+
+    const request = fetchMock.mock.calls[0]!;
+    const body = JSON.parse(request[1].body);
+    expect(request[0]).toBe("https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation");
+    expect(request[1].headers).not.toHaveProperty("X-DashScope-Async");
+    expect(body.model).toBe("qwen-image-2.0-pro-2026-04-22");
+    expect(body.input.messages[0].content[0].text).toContain("invisible 5 by 5 crop layout");
+    expect(body.parameters).toMatchObject({
+      size: "2048*2048",
+      n: 1,
+      prompt_extend: false,
+      watermark: false,
+    });
+    expect(deck.mode).toBe("ai");
+    expect(deck.contents).toHaveLength(25);
   });
 
   it("omits output_format for Volcano Seedream 4.5 image requests", () => {

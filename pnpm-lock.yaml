@@ -17,15 +17,24 @@ importers:
       '@codenames/shared':
         specifier: workspace:*
         version: link:packages/shared
+      '@img/colour':
+        specifier: ^1.1.0
+        version: 1.1.0
       cors:
         specifier: ^2.8.5
         version: 2.8.6
+      detect-libc:
+        specifier: ^2.1.2
+        version: 2.1.2
       express:
         specifier: ^5.1.0
         version: 5.2.1
       openai:
         specifier: ^6.3.0
         version: 6.34.0(ws@8.18.3)(zod@4.3.6)
+      semver:
+        specifier: ^7.7.4
+        version: 7.7.4
       sharp:
         specifier: ^0.34.5
         version: 0.34.5
@@ -46,6 +55,9 @@ importers:
         specifier: ^1.59.1
         version: 1.59.1
     optionalDependencies:
+      '@img/sharp-libvips-win32-x64':
+        specifier: 1.2.4
+        version: 1.2.4
       '@img/sharp-win32-x64':
         specifier: 0.34.5
         version: 0.34.5
@@ -592,6 +604,9 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [musl]
+
+  '@img/sharp-libvips-win32-x64@1.2.4':
+    resolution: {integrity: sha512-fpCMPMNm6z5dA0fEFTXn93JJJql0ya7Z5rSC80pd5IJE0/TBzRSGI1zx4CHYOSTBls26TxRGUxnfNgEJk4DNeA==}
 
   '@img/sharp-linux-arm64@0.34.5':
     resolution: {integrity: sha512-bKQzaJRY/bkPOXyKx5EVup7qkaojECG6NLYswgktOZjaXecSAeCWiZwwiFf3/Y+O1HrauiE3FVsGxFg8c24rZg==}
@@ -3021,6 +3036,9 @@ snapshots:
     optional: true
 
   '@img/sharp-libvips-linuxmusl-x64@1.2.4':
+    optional: true
+
+  '@img/sharp-libvips-win32-x64@1.2.4':
     optional: true
 
   '@img/sharp-linux-arm64@0.34.5':

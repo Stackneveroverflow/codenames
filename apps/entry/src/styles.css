@@ -21,7 +21,7 @@ body {
     radial-gradient(circle at 50% 16%, rgba(60, 121, 162, 0.34), transparent 30%),
     radial-gradient(circle at 78% 8%, rgba(240, 203, 122, 0.2), transparent 26%),
     linear-gradient(180deg, rgba(7, 8, 8, 0.24), rgba(9, 8, 7, 0.9)),
-    url("/dealer-bg.jpg") center/cover fixed;
+    url("/dealer-bg.webp") center/cover fixed;
 }
 
 button {

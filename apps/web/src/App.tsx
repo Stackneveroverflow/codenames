@@ -203,12 +203,16 @@ const modeLabels: Record<GameMode, string> = {
 };
 
 const missingApiKeyError = "大模型牌库需要先配置 API Key";
+const setupImageUrls = ["/mode-text.webp", "/mode-image.webp", "/deck-cover.webp"];
 
 const imageModelLabels: Record<string, string> = {
-  "gpt-image-1.5": "ImageGen2",
+  "gpt-image-2": "ImageGen2",
   "doubao-seedream-4-0-250828": "Seedream 4",
   "doubao-seedream-4-5-251128": "Seedream 4.5",
   "doubao-seedream-5-0-260128": "Seedream 5.0 lite",
+  "qwen-image-2.0-pro-2026-04-22": "Qwen Image 2.0 Pro (2026-04-22)",
+  "qwen-image-2.0-pro": "Qwen Image 2.0 Pro",
+  "qwen-image-2.0-pro-2026-03-03": "Qwen Image 2.0 Pro (2026-03-03)",
 };
 
 function firstModel(models: readonly string[]) {
@@ -224,6 +228,18 @@ function defaultImageModel(provider: AiProvider) {
 
 function modelDisplayName(model: string) {
   return imageModelLabels[model] ?? model;
+}
+
+function preloadImages(urls: string[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  for (const url of urls) {
+    const image = new Image();
+    image.decoding = "async";
+    image.src = url;
+  }
 }
 
 const ownerLabels: Record<CardOwner, string> = {
@@ -562,6 +578,10 @@ function HomePage() {
   }, []);
 
   useEffect(() => {
+    preloadImages(setupImageUrls);
+  }, []);
+
+  useEffect(() => {
     setDeckSource(gameMode === "image" ? "ai" : "fallback");
     if (gameMode === "text") {
       setAiConfigOpen(false);
@@ -666,8 +686,8 @@ function HomePage() {
             <section className="stack-screen">
               <ScreenTitle title="选择情报载体" />
               <div className="mode-list">
-                <ModeCard active={gameMode === "text"} image="/mode-text.jpg" title="文字情报" note="默认本地中文牌库" onClick={() => runAction(() => setGameMode("text"), "score")} />
-                <ModeCard active={gameMode === "image"} image="/mode-image.jpg" title="影像情报" note="默认大模型图片牌库" onClick={() => runAction(() => setGameMode("image"), "score")} />
+                <ModeCard active={gameMode === "text"} image="/mode-text.webp" title="文字情报" note="默认本地中文牌库" onClick={() => runAction(() => setGameMode("text"), "score")} />
+                <ModeCard active={gameMode === "image"} image="/mode-image.webp" title="影像情报" note="默认大模型图片牌库" onClick={() => runAction(() => setGameMode("image"), "score")} />
               </div>
               <FooterNav back={() => runAction(() => setStep("home"))} next={() => runAction(() => setStep("headcount"))} />
             </section>
@@ -780,7 +800,7 @@ function GuidePage({ onBack }: { onBack: () => void }) {
       <IconButton icon={icons.back} label="返回" className="guide-back" onClick={onBack} />
 
       <div className="guide-hero" data-animate="panel">
-        <img src="/deck-cover.jpg" alt="" />
+        <img src="/deck-cover.webp" alt="" loading="lazy" decoding="async" />
         <div>
           <p className="eyebrow">Game Guide</p>
           <h1>游戏说明</h1>
@@ -799,7 +819,7 @@ function GuideRuleBlocks() {
   return (
     <>
       <article className="guide-block" data-animate="card">
-        <img src="/mode-text.jpg" alt="" />
+        <img src="/mode-text.webp" alt="" loading="lazy" decoding="async" />
         <div>
           <span>目标</span>
           <strong>先找完己方所有词牌</strong>
@@ -822,7 +842,7 @@ function GuideRuleBlocks() {
         </div>
       </article>
       <article className="guide-block" data-animate="card">
-        <img src="/mode-image.jpg" alt="" />
+        <img src="/mode-image.webp" alt="" loading="lazy" decoding="async" />
         <div>
           <span>队员</span>
           <strong>根据线索猜牌</strong>
@@ -1032,7 +1052,7 @@ function HostPanel({ hostInfo, compact = false }: { hostInfo: HostInfo | null; c
 function ModeCard({ active, image, title, note, onClick }: { active: boolean; image: string; title: string; note: string; onClick: () => void }) {
   return (
     <button type="button" className={`mode-card${active ? " mode-card--active" : ""}`} onClick={onClick} data-animate="card">
-      <img src={image} alt="" />
+      <img src={image} alt="" loading="eager" decoding="async" />
       <span>{title}</span>
       <strong>{note}</strong>
     </button>
@@ -1436,7 +1456,7 @@ function WaitingRoom({
   function renderPlayerSlot(player: PlayerState) {
     return (
       <article key={player.id} className={`player-slot${player.spectatorIntent ? " player-slot--spectator" : ""}`} data-animate="card">
-        <img src="/avatar-agent.jpg" alt="" />
+        <img src="/avatar-agent.webp" alt="" loading="lazy" decoding="async" />
         <span>{player.nickname}</span>
         <small>{playerMeta(snapshot, player)}</small>
       </article>
@@ -1474,7 +1494,7 @@ function WaitingRoom({
         {participants.map(renderPlayerSlot)}
         {Array.from({ length: emptySlots }, (_, index) => (
           <article key={`empty-${index}`} className="player-slot player-slot--empty" data-animate="card">
-            <img src="/avatar-agent.jpg" alt="" />
+            <img src="/avatar-agent.webp" alt="" loading="lazy" decoding="async" />
             <span>邀请位</span>
             <small>等待游戏玩家</small>
           </article>

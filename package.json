@@ -1,7 +1,7 @@
 {
   "name": "codenames-online",
   "private": true,
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "行动代号线下发牌器",
   "author": "codenames",
   "type": "module",
@@ -29,9 +29,12 @@
     "@codenames/game-core": "workspace:*",
     "@codenames/server": "workspace:*",
     "@codenames/shared": "workspace:*",
+    "@img/colour": "^1.1.0",
     "cors": "^2.8.5",
+    "detect-libc": "^2.1.2",
     "express": "^5.1.0",
     "openai": "^6.3.0",
+    "semver": "^7.7.4",
     "sharp": "^0.34.5",
     "socket.io": "^4.8.1",
     "zod": "^4.1.12"
@@ -57,7 +60,9 @@
     "asar": true,
     "asarUnpack": [
       "**/node_modules/sharp/**/*",
-      "**/node_modules/@img/**/*"
+      "**/node_modules/@img/**/*",
+      "**/node_modules/detect-libc/**/*",
+      "**/node_modules/semver/**/*"
     ],
     "win": {
       "artifactName": "codenames-${version}-windows-${arch}.${ext}",
@@ -81,6 +86,7 @@
     }
   },
   "optionalDependencies": {
+    "@img/sharp-libvips-win32-x64": "1.2.4",
     "@img/sharp-win32-x64": "0.34.5"
   },
   "pnpm": {

@@ -12,28 +12,25 @@ export type TeamName = (typeof teamNames)[number];
 export const gameModes = ["text", "image"] as const;
 export type GameMode = (typeof gameModes)[number];
 
-export const aiProviders = ["openai", "volcano", "tongyi", "hunyuan"] as const;
+export const aiProviders = ["openai", "volcano", "tongyi"] as const;
 export type AiProvider = (typeof aiProviders)[number];
 
 export const aiProviderLabels: Record<AiProvider, string> = {
   openai: "OpenAI",
   volcano: "火山",
-  tongyi: "通义",
-  hunyuan: "混元",
+  tongyi: "千问",
 };
 
 export const aiTextModelsByProvider: Record<AiProvider, readonly string[]> = {
   openai: ["gpt-5.4-mini", "gpt-5.4"],
   volcano: ["doubao-seed-1-6-250615", "doubao-seed-1-6-flash-250615"],
   tongyi: ["qwen-plus", "qwen-turbo", "qwen-max"],
-  hunyuan: ["hunyuan-turbos-latest", "hunyuan-t1-latest"],
 };
 
 export const aiImageModelsByProvider: Record<AiProvider, readonly string[]> = {
-  openai: ["gpt-image-1.5"],
+  openai: ["gpt-image-2"],
   volcano: ["doubao-seedream-4-0-250828", "doubao-seedream-4-5-251128", "doubao-seedream-5-0-260128"],
-  tongyi: ["wan2.5-t2i-preview", "wan2.2-t2i-plus", "wan2.2-t2i-turbo"],
-  hunyuan: ["hunyuan-image-3.0"],
+  tongyi: ["qwen-image-2.0-pro-2026-04-22", "qwen-image-2.0-pro", "qwen-image-2.0-pro-2026-03-03"],
 };
 
 export interface AiDeckConfig {
