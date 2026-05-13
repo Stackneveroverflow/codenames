@@ -63,7 +63,7 @@ corepack pnpm --filter @codenames/web dev
 corepack pnpm --filter @codenames/entry dev
 ```
 
-局域网调试时，确保房主电脑防火墙放行 Node.js 和服务端端口。入口页会打开 `520x1040` 的玩家窗口；桌面版玩家窗口也保持同样尺寸。
+局域网调试时，确保房主电脑防火墙放行 Node.js 和服务端端口。入口页会打开 `520x1040` 的玩家视口；桌面版玩家窗口也保持同样的内容区尺寸。
 
 ## 桌面版
 
@@ -124,7 +124,7 @@ corepack pnpm --filter @codenames/desktop lint
 corepack pnpm desktop:build
 ```
 
-桌面窗口相关改动还应做 Electron smoke check，确认 `BrowserWindow.getBounds()` 与入口窗口尺寸一致。
+桌面窗口相关改动还应做 Electron smoke check，确认 `BrowserWindow.getContentBounds()` 与入口玩家视口尺寸一致。
 
 ## 安全注意
 

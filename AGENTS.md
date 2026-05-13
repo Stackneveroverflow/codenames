@@ -51,9 +51,9 @@ Do not commit secrets. Server model features may read `OPENAI_API_KEY`, but loca
 
 ## Desktop Window Guidelines
 
-Keep the desktop player-window size aligned with the browser entry popup. The current player window is `520x1040`; if this changes, update `apps/entry/src/main.js`, `apps/web/src/App.tsx`, and `apps/desktop/src/main.ts` together.
+Keep the desktop player-window content area aligned with the browser entry popup. The current player viewport is `520x1040`; if this changes, update `apps/entry/src/main.js`, `apps/web/src/App.tsx`, and `apps/desktop/src/main.ts` together.
 
-For Electron `window.open()` flows, set `overrideBrowserWindowOptions` in `setWindowOpenHandler` so child player windows keep the same size and security options as the initial player window. Verify desktop window changes with `corepack pnpm --filter @codenames/desktop lint`, `corepack pnpm desktop:build`, and an Electron smoke check that reads `BrowserWindow.getBounds()`.
+For Electron `window.open()` flows, set `overrideBrowserWindowOptions` in `setWindowOpenHandler` so child player windows keep the same content size and security options as the initial player window. Verify desktop window changes with `corepack pnpm --filter @codenames/desktop lint`, `corepack pnpm desktop:build`, and an Electron smoke check that reads `BrowserWindow.getContentBounds()`.
 
 ## Agent-Specific Instructions
 

@@ -9,9 +9,14 @@ import { createAppServer, type HostInfo } from "../../server/src/socketServer";
 
 const DEFAULT_PORT = parsePort(process.env.CODENAMES_HOST_PORT, 3210);
 const desktopDistDir = __dirname;
-const playerWindowOptions: BrowserWindowConstructorOptions = {
+const playerWindowContentSize = {
   width: 520,
   height: 1040,
+};
+const playerWindowOptions: BrowserWindowConstructorOptions = {
+  width: playerWindowContentSize.width,
+  height: playerWindowContentSize.height,
+  useContentSize: true,
   minWidth: 390,
   minHeight: 760,
   title: "行动代号",
@@ -56,6 +61,10 @@ function shareEntryUrl(hostInfo: HostInfo) {
   return new URL("/entry/", hostInfo.lanUrls[0] ?? hostInfo.localUrl).toString();
 }
 
+function enforcePlayerContentSize(window: BrowserWindow) {
+  window.setContentSize(playerWindowContentSize.width, playerWindowContentSize.height);
+}
+
 function createPlayerWindow(hostInfo: HostInfo, route = "/entry/") {
   const window = new BrowserWindow(playerWindowOptions);
 
@@ -70,6 +79,8 @@ function createPlayerWindow(hostInfo: HostInfo, route = "/entry/") {
     return { action: "deny" };
   });
 
+  enforcePlayerContentSize(window);
+  window.webContents.once("did-finish-load", () => enforcePlayerContentSize(window));
   window.loadURL(entryUrl(hostInfo, route));
   return window;
 }
