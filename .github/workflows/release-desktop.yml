@@ -43,6 +43,13 @@ jobs:
         run: |
           test -f "release/win-unpacked/resources/app.asar.unpacked/node_modules/sharp/package.json"
           test -f "release/win-unpacked/resources/app.asar.unpacked/node_modules/@img/sharp-win32-x64/lib/sharp-win32-x64.node"
+          test -d "release/win-unpacked/resources/app.asar.unpacked/node_modules/@img/sharp-libvips-win32-x64"
+          node - <<'NODE'
+          const path = require("node:path");
+          const appRoot = path.resolve("release/win-unpacked/resources/app.asar.unpacked");
+          const sharp = require(path.join(appRoot, "node_modules", "sharp"));
+          console.log(`sharp ${sharp.versions.sharp}, vips ${sharp.versions.vips}`);
+          NODE
 
       - name: Upload exe artifact
         uses: actions/upload-artifact@v4

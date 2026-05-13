@@ -46,6 +46,9 @@ importers:
         specifier: ^1.59.1
         version: 1.59.1
     optionalDependencies:
+      '@img/sharp-libvips-win32-x64':
+        specifier: 1.2.4
+        version: 1.2.4
       '@img/sharp-win32-x64':
         specifier: 0.34.5
         version: 0.34.5
@@ -592,6 +595,9 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [musl]
+
+  '@img/sharp-libvips-win32-x64@1.2.4':
+    resolution: {integrity: sha512-fpCMPMNm6z5dA0fEFTXn93JJJql0ya7Z5rSC80pd5IJE0/TBzRSGI1zx4CHYOSTBls26TxRGUxnfNgEJk4DNeA==}
 
   '@img/sharp-linux-arm64@0.34.5':
     resolution: {integrity: sha512-bKQzaJRY/bkPOXyKx5EVup7qkaojECG6NLYswgktOZjaXecSAeCWiZwwiFf3/Y+O1HrauiE3FVsGxFg8c24rZg==}
@@ -3021,6 +3027,9 @@ snapshots:
     optional: true
 
   '@img/sharp-libvips-linuxmusl-x64@1.2.4':
+    optional: true
+
+  '@img/sharp-libvips-win32-x64@1.2.4':
     optional: true
 
   '@img/sharp-linux-arm64@0.34.5':

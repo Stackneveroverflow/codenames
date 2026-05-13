@@ -81,6 +81,7 @@
     }
   },
   "optionalDependencies": {
+    "@img/sharp-libvips-win32-x64": "1.2.4",
     "@img/sharp-win32-x64": "0.34.5"
   },
   "pnpm": {

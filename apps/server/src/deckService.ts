@@ -185,7 +185,9 @@ async function loadSharp() {
     return module.default;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`图片牌库需要安装 sharp 依赖，请先运行 corepack pnpm install。原始错误：${message}`);
+    throw new Error(
+      `图片牌库需要可加载的 sharp 原生依赖。源码运行请执行 corepack pnpm install；桌面版请使用包含 Windows sharp 原生包的新版构建。原始错误：${message}`,
+    );
   }
 }
 
