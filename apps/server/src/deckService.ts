@@ -128,7 +128,7 @@ export function createFallbackDeck(mode: GameMode = "text", random: () => number
       mode: "fallback",
       contents: imageCardAlts.map((alt, index) => ({
         type: "image" as const,
-        imageUrl: index % 2 === 0 ? "/mode-image.jpg" : "/deck-cover.jpg",
+        imageUrl: index % 2 === 0 ? "/mode-image.webp" : "/deck-cover.webp",
         alt,
       })),
     };

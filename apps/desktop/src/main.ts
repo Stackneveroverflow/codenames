@@ -65,9 +65,7 @@ function enforcePlayerContentSize(window: BrowserWindow) {
   window.setContentSize(playerWindowContentSize.width, playerWindowContentSize.height);
 }
 
-function createPlayerWindow(hostInfo: HostInfo, route = "/entry/") {
-  const window = new BrowserWindow(playerWindowOptions);
-
+function configurePlayerWindow(window: BrowserWindow, hostInfo: HostInfo) {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith(hostInfo.localUrl) || url.startsWith(`http://127.0.0.1:${hostInfo.port}`)) {
       return {
@@ -78,10 +76,86 @@ function createPlayerWindow(hostInfo: HostInfo, route = "/entry/") {
     shell.openExternal(url);
     return { action: "deny" };
   });
+}
 
+function loadPlayerEntry(window: BrowserWindow, hostInfo: HostInfo, route = "/entry/") {
+  configurePlayerWindow(window, hostInfo);
   enforcePlayerContentSize(window);
   window.webContents.once("did-finish-load", () => enforcePlayerContentSize(window));
-  window.loadURL(entryUrl(hostInfo, route));
+  void window.loadURL(entryUrl(hostInfo, route));
+}
+
+function createPlayerWindow(hostInfo: HostInfo, route = "/entry/") {
+  const window = new BrowserWindow(playerWindowOptions);
+  loadPlayerEntry(window, hostInfo, route);
+  return window;
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => {
+    const entities: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "\"": "&quot;",
+      "'": "&#39;",
+    };
+    return entities[char] ?? char;
+  });
+}
+
+function startupPage(message = "正在启动本机服务") {
+  return `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>行动代号</title>
+    <style>
+      :root { color-scheme: dark; font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; }
+      * { box-sizing: border-box; }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 50% 18%, rgba(54, 112, 150, 0.34), transparent 34%),
+          linear-gradient(180deg, #171412, #090807);
+        color: #fff1cf;
+      }
+      main { display: grid; gap: 18px; justify-items: center; text-align: center; }
+      h1 { margin: 0; font-size: 42px; line-height: 1; letter-spacing: 0; }
+      p { margin: 0; color: rgba(255, 241, 207, 0.78); font-weight: 800; }
+      .pulse {
+        width: 42px;
+        aspect-ratio: 1;
+        border: 2px solid rgba(240, 203, 122, 0.28);
+        border-top-color: #f0cb7a;
+        border-radius: 999px;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="pulse"></div>
+      <h1>行动代号</h1>
+      <p>${escapeHtml(message)}</p>
+    </main>
+  </body>
+</html>`;
+}
+
+function startupDataUrl(message?: string) {
+  return `data:text/html;charset=utf-8,${encodeURIComponent(startupPage(message))}`;
+}
+
+function createStartupWindow() {
+  const window = new BrowserWindow(playerWindowOptions);
+  enforcePlayerContentSize(window);
+  void window.loadURL(startupDataUrl());
   return window;
 }
 
@@ -168,12 +242,17 @@ async function startEmbeddedServer(webDist: string, entryDist: string) {
 async function main() {
   await app.whenReady();
 
+  const startupWindow = createStartupWindow();
   const webDist = resolveWebDist();
   const entryDist = resolveEntryDist();
   const { hostInfo } = await startEmbeddedServer(webDist, entryDist);
 
   installMenu(hostInfo);
-  createPlayerWindow(hostInfo);
+  if (startupWindow.isDestroyed()) {
+    createPlayerWindow(hostInfo);
+  } else {
+    loadPlayerEntry(startupWindow, hostInfo);
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -188,5 +267,11 @@ app.on("window-all-closed", () => {
 
 main().catch((error) => {
   console.error(error);
+  const [window] = BrowserWindow.getAllWindows();
+  if (window && !window.isDestroyed()) {
+    const message = error instanceof Error ? error.message : String(error);
+    void window.loadURL(startupDataUrl(`启动失败：${message}`));
+    return;
+  }
   app.quit();
 });

@@ -33,7 +33,7 @@ body {
     radial-gradient(circle at 50% 14%, rgba(60, 121, 162, 0.34), transparent 30%),
     radial-gradient(circle at 78% 8%, rgba(240, 203, 122, 0.18), transparent 26%),
     linear-gradient(180deg, rgba(7, 8, 8, 0.22), rgba(9, 8, 7, 0.92)),
-    url("/dealer-bg.jpg") center/cover fixed;
+    url("/dealer-bg.webp") center/cover fixed;
   color: var(--paper);
 }
 
@@ -99,7 +99,7 @@ select:disabled {
   border-radius: 22px;
   background:
     linear-gradient(180deg, rgba(18, 22, 24, 0.82), rgba(8, 7, 6, 0.96)),
-    url("/spy-bg.jpg") center/cover;
+    url("/spy-bg.webp") center/cover;
   box-shadow: 0 28px 90px rgba(0, 0, 0, 0.66), inset 0 0 0 1px rgba(255, 241, 207, 0.06);
 }
 
@@ -416,7 +416,7 @@ select:disabled {
   border-radius: 18px;
   background:
     linear-gradient(180deg, rgba(255, 241, 207, 0.08), rgba(8, 7, 6, 0.76)),
-    url("/deck-cover.jpg") center/cover;
+    url("/deck-cover.webp") center/cover;
   box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.6), 0 20px 58px rgba(0, 0, 0, 0.42);
 }
 
