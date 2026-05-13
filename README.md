@@ -1,6 +1,6 @@
 # 行动代号
 
-当前版本：`0.9.4`
+当前版本：`0.9.5`
 
 中文优先的《行动代号》房间、发牌和对局工具。它可以作为普通 Web 应用运行，也可以打包成桌面宿主：房主启动后，本机托管前端、HTTP API 和 Socket.IO，其他玩家通过同一局域网加入。
 
@@ -17,6 +17,7 @@
 - 线索会做牌面文字校验，不能包含文字牌阵中出现的字。
 - 倒计时只做提醒，不强制推进；超时提示为 `抓紧时间`。
 - 支持房间重连、房主转移、返回等候房间和重新发牌。
+- 桌面 portable 启动时会先显示轻量启动页，内置服务就绪后自动进入入口页。
 
 ## 使用流程
 
@@ -65,9 +66,13 @@ corepack pnpm --filter @codenames/entry dev
 
 局域网调试时，确保房主电脑防火墙放行 Node.js 和服务端端口。入口页会打开 `520x1040` 的玩家视口；桌面版玩家窗口也保持同样的内容区尺寸。
 
+首屏和模式选择页使用压缩 WebP 资源。入口页只携带自己的轻量资源，避免把完整游戏素材重复打进桌面包。
+
 ## 桌面版
 
 桌面版采用 Hosted Server 架构。启动后会在本机开启服务，默认端口 `3210`；如果端口被占用，会自动尝试后续端口。等待房间会显示房主服务器地址，其他设备访问该地址即可加入。
+
+portable 首次打开可能仍受系统解包和安全扫描影响。应用会先显示本地启动页，再在内置服务就绪后自动切到入口页。
 
 ```bash
 corepack pnpm desktop:dev
@@ -80,10 +85,12 @@ corepack pnpm desktop:pack   # 生成未压缩的桌面构建
 corepack pnpm desktop:dist   # 生成平台分发产物
 ```
 
-GitHub Release workflow 会构建并发布 Windows portable `.exe` 和 macOS `.zip`。当前 `v0.9.4` 发布产物命名为：
+GitHub Release workflow 会构建并发布 Windows portable `.exe` 和 macOS `.zip`。当前 `v0.9.5` 发布产物命名为：
 
-- `codenames-0.9.4-windows-x64.exe`
-- `codenames-0.9.4-macos-x64.zip`
+- `codenames-0.9.5-windows-x64.exe`
+- `codenames-0.9.5-macos-x64.zip`
+
+Windows 包会校验 `sharp` 的 win32 原生模块和 libvips runtime，并在打包后执行一次 `require("sharp")` 烟测，避免图片牌库运行时才暴露 native 依赖缺失。
 
 ## 牌库与模型
 
@@ -103,6 +110,15 @@ GitHub Release workflow 会构建并发布 Windows portable `.exe` 和 macOS `.z
 - API Key 只在创建房间请求中提交给房主服务器，不应写入仓库。
 - 大模型生成失败时不会自动回退到本地牌库。
 - 服务端会把生成的整张 `5x5` 图片切成 `25` 张牌并缓存在内存中。
+- 本地图片占位牌库使用轻量 WebP 素材，减少桌面包体积和模式页加载等待。
+
+## 0.9.5 更新重点
+
+- 优化桌面 portable 启动体验：先显示轻量启动页，再进入入口页。
+- 压缩首屏、模式页、封面和头像资源，构建后的 `apps/web/dist` 约 `2MB`，`apps/entry/dist` 约 `64KB`。
+- 修复 Windows 图片牌库的 `sharp` 原生运行时打包问题，显式包含 `@img/sharp-libvips-win32-x64`。
+- 发布流水线新增 Windows packaged `sharp` 加载烟测。
+- 桌面玩家窗口内容区保持 `520x1040`，与 Web 入口打开的玩家窗口一致。
 
 ## 常用验证
 
