@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
 import {
+  codenamesPicturesReferenceImageUrl,
   createFallbackDeck,
   createImageDeckFromGrid,
   generateAiDeck,
   imageGenerationRequestOptions,
   imageGridPrompt,
+  qwenImageGridPrompt,
   validateWords,
 } from "../src/deckService";
 import { fallbackWords } from "../src/fallbackWords";
@@ -154,32 +156,38 @@ describe("deckService", () => {
   it("asks image models for an invisible 5 by 5 layout without visible card frames", () => {
     const prompt = imageGridPrompt(() => 0);
 
-    expect(prompt).toContain("invisible 5 by 5 crop layout");
+    expect(prompt).toContain("Goal:");
+    expect(prompt).toContain("Layout:");
+    expect(prompt).toContain("Composition:");
+    expect(prompt).toContain("Style:");
+    expect(prompt).toContain("Reference:");
+    expect(prompt).toContain("Hard constraints:");
     expect(prompt).toContain("production sprite sheet");
-    expect(prompt).toContain("hard crop guides");
-    expect(prompt).toContain("20% by 20% crop area");
-    expect(prompt).toContain("no outer padding");
-    expect(prompt).toContain("no centered board");
-    expect(prompt).toContain("no visible grid lines");
-    expect(prompt).toContain("cell borders");
-    expect(prompt).toContain("rounded card frames");
-    expect(prompt).toContain("drop shadows");
-    expect(prompt).toContain("margins");
-    expect(prompt).toContain("gutters");
-    expect(prompt).toContain("private three-object candidate set");
+    expect(prompt).toContain("playable picture cards for one round");
+    expect(prompt).toContain("Hard crop guides");
+    expect(prompt).toContain("20% by 20% cell");
+    expect(prompt).toContain("No outer padding");
+    expect(prompt).toContain("centered board");
+    expect(prompt).toContain("visible grid");
+    expect(prompt).toContain("cell border");
+    expect(prompt).toContain("rounded card frame");
+    expect(prompt).toContain("shadow");
+    expect(prompt).toContain("gutter");
+    expect(prompt).toContain("Cell briefs:");
     expect(prompt).toContain("choose exactly the two most visually compatible objects");
-    expect(prompt).toContain("ignore the third object");
-    expect(prompt).toContain("Both chosen objects must be clearly visible");
-    expect(prompt).toContain("Never draw a cell with only one recognizable object");
-    expect(prompt).toContain("Fuse the chosen two objects");
-    expect(prompt).toContain("not by simply placing them side by side or stacking them together");
+    expect(prompt).toContain("ignore the third");
+    expect(prompt).toContain("Show both chosen objects clearly and recognizably");
+    expect(prompt).toContain("never reduce a cell to one recognizable object");
+    expect(prompt).toContain("fuse them through interaction");
     expect(prompt).toContain("abstract riddle-like composition");
+    expect(prompt).toContain("Codenames: Pictures");
     expect(prompt).toContain("yellow kraft paper");
-    expect(prompt).toContain("Only the paper background");
+    expect(prompt).toContain("black, white, and gray ink only");
     expect(prompt).toContain("No colored subjects");
     expect(prompt).toContain("Do not draw any text");
-    expect(prompt).toContain("captions");
     expect(prompt).toContain("labels");
+    expect(prompt).not.toContain("do not copy any published card image");
+    expect(prompt).not.toContain("Avoid objects that usually contain writing");
     expect(prompt).not.toContain("treasure chest");
     expect(prompt).not.toContain("long tongue");
     expect(prompt).not.toContain("train passing");
@@ -192,6 +200,27 @@ describe("deckService", () => {
     expect(firstPrompt).not.toBe(secondPrompt);
     expect(firstPrompt).toContain("Random seed");
     expect(secondPrompt).toContain("Random seed");
+  });
+
+  it("uses a shorter dedicated prompt for Qwen image boards", () => {
+    const prompt = qwenImageGridPrompt(() => 0);
+
+    expect(prompt).toContain("随机种子：");
+    expect(prompt).toContain("目标：");
+    expect(prompt).toContain("布局：");
+    expect(prompt).toContain("构图：");
+    expect(prompt).toContain("参考：");
+    expect(prompt).toContain("风格：");
+    expect(prompt).toContain("硬性要求：");
+    expect(prompt).toContain("行动代号图片牌总图");
+    expect(prompt).toContain("25 张可玩的图片牌");
+    expect(prompt).toContain("《Codenames: Pictures》");
+    expect(prompt).toContain("每格必须恰好出现 2 个清晰可辨认的主体");
+    expect(prompt).toContain("不要重复或近似重复");
+    expect(prompt).not.toContain("do not copy any published card");
+    expect(prompt).not.toContain("Goal:");
+    expect(prompt.length).toBeLessThan(800);
+    expect(prompt.length).toBeLessThan(imageGridPrompt(() => 0).length);
   });
 
   it("uses OpenAI ImageGen2 without legacy response_format", () => {
@@ -245,7 +274,7 @@ describe("deckService", () => {
         provider: "tongyi",
         apiKey: "sk-test",
         textModel: "qwen-plus",
-      imageModel: "qwen-image-2.0-pro-2026-04-22",
+        imageModel: "qwen-image-2.0-pro-2026-04-22",
       },
       imageStore,
       roomId: "ROOM1",
@@ -257,7 +286,15 @@ describe("deckService", () => {
     expect(request[0]).toBe("https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation");
     expect(request[1].headers).not.toHaveProperty("X-DashScope-Async");
     expect(body.model).toBe("qwen-image-2.0-pro-2026-04-22");
-    expect(body.input.messages[0].content[0].text).toContain("invisible 5 by 5 crop layout");
+    expect(body.input.messages[0].content[0].text).toContain("目标：");
+    expect(body.input.messages[0].content[0].text).toContain("25 张可玩的图片牌");
+    expect(body.input.messages[0].content[0].text).toContain("《Codenames: Pictures》");
+    expect(body.input.messages[0].content[0].text).toContain("每格必须恰好出现 2 个清晰可辨认的主体");
+    expect(body.input.messages[0].content[0].text).toContain("不要重复或近似重复");
+    expect(body.input.messages[0].content[0].text).not.toContain("private three-object candidate set");
+    expect(body.input.messages[0].content[0].text).not.toContain("do not copy any published card");
+    expect(body.input.messages[0].content[0].text).not.toContain("Goal:");
+    expect(body.input.messages[0].content[0].text.length).toBeLessThan(800);
     expect(body.parameters).toMatchObject({
       size: "2048*2048",
       n: 1,
@@ -284,6 +321,7 @@ describe("deckService", () => {
       prompt: "prompt",
       n: 1,
       size: "2048x2048",
+      image: codenamesPicturesReferenceImageUrl,
       response_format: "b64_json",
       watermark: false,
     });
@@ -303,6 +341,7 @@ describe("deckService", () => {
 
     expect(request).toMatchObject({
       model: "doubao-seedream-5-0-260128",
+      image: codenamesPicturesReferenceImageUrl,
       output_format: "png",
       watermark: false,
     });
