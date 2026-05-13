@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from "node:http";
 import path from "node:path";
 
-import { app, BrowserWindow, clipboard, Menu, shell, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, clipboard, Menu, shell, type BrowserWindowConstructorOptions, type MenuItemConstructorOptions } from "electron";
 import express from "express";
 
 import { createHostInfo } from "../../server/src/network";
@@ -9,6 +9,18 @@ import { createAppServer, type HostInfo } from "../../server/src/socketServer";
 
 const DEFAULT_PORT = parsePort(process.env.CODENAMES_HOST_PORT, 3210);
 const desktopDistDir = __dirname;
+const playerWindowOptions: BrowserWindowConstructorOptions = {
+  width: 520,
+  height: 1040,
+  minWidth: 390,
+  minHeight: 760,
+  title: "行动代号",
+  backgroundColor: "#171412",
+  webPreferences: {
+    contextIsolation: true,
+    nodeIntegration: false,
+  },
+};
 
 function parsePort(value: string | undefined, fallback: number) {
   const parsed = Number(value ?? fallback);
@@ -45,22 +57,14 @@ function shareEntryUrl(hostInfo: HostInfo) {
 }
 
 function createPlayerWindow(hostInfo: HostInfo, route = "/entry/") {
-  const window = new BrowserWindow({
-    width: 430,
-    height: 900,
-    minWidth: 390,
-    minHeight: 760,
-    title: "行动代号",
-    backgroundColor: "#171412",
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
+  const window = new BrowserWindow(playerWindowOptions);
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith(hostInfo.localUrl) || url.startsWith(`http://127.0.0.1:${hostInfo.port}`)) {
-      return { action: "allow" };
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: playerWindowOptions,
+      };
     }
     shell.openExternal(url);
     return { action: "deny" };

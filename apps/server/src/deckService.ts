@@ -32,7 +32,7 @@ interface GenerateAiDeckOptions {
 interface ProviderDefinition {
   textBaseURL?: string;
   imageBaseURL?: string;
-  imageKind: "openai" | "dashscope" | "hunyuan";
+  imageKind: "openai" | "dashscope";
 }
 
 const providerDefinitions: Record<AiDeckConfig["provider"], ProviderDefinition> = {
@@ -47,10 +47,6 @@ const providerDefinitions: Record<AiDeckConfig["provider"], ProviderDefinition> 
   tongyi: {
     textBaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
     imageKind: "dashscope",
-  },
-  hunyuan: {
-    textBaseURL: "https://api.hunyuan.cloud.tencent.com/v1",
-    imageKind: "hunyuan",
   },
 };
 
@@ -260,10 +256,6 @@ async function generateImageGrid(config: AiDeckConfig, fetchImpl: FetchLike, ran
     return generateDashScopeImageGrid(config, prompt, fetchImpl);
   }
 
-  if (provider.imageKind === "hunyuan") {
-    return generateHunyuanImageGrid(config, prompt, fetchImpl);
-  }
-
   const client = new OpenAI({
     apiKey: config.apiKey,
     baseURL: provider.imageBaseURL,
@@ -292,7 +284,7 @@ export function imageGenerationRequestOptions(config: AiDeckConfig, prompt: stri
     prompt,
     n: 1,
     size: "2048x2048",
-    response_format: "b64_json",
+    ...(config.provider !== "openai" ? { response_format: "b64_json" } : {}),
     ...(config.provider === "volcano" ? { watermark: false } : {}),
     ...(config.provider === "volcano" && volcanoOutputFormatImageModels.has(config.imageModel)
       ? { output_format: "png" }
@@ -301,49 +293,7 @@ export function imageGenerationRequestOptions(config: AiDeckConfig, prompt: stri
 }
 
 async function generateDashScopeImageGrid(config: AiDeckConfig, prompt: string, fetchImpl: FetchLike): Promise<Buffer> {
-  const response = await fetchImpl("https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      "Content-Type": "application/json",
-      "X-DashScope-Async": "enable",
-    },
-    body: JSON.stringify({
-      model: config.imageModel,
-      input: { prompt },
-      parameters: { size: "2048*2048", n: 1 },
-    }),
-  });
-  const submitted = await readJson(response);
-  const taskId = submitted.output?.task_id;
-  if (!taskId) {
-    throw new Error("通义图片生成未返回任务 ID");
-  }
-
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    await delay(1500);
-    const poll = await fetchImpl(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, {
-      headers: { Authorization: `Bearer ${config.apiKey}` },
-    });
-    const payload = await readJson(poll);
-    const status = payload.output?.task_status;
-    if (status === "SUCCEEDED") {
-      const url = payload.output?.results?.[0]?.url;
-      if (!url) {
-        throw new Error("通义图片生成成功但未返回图片 URL");
-      }
-      return fetchImageBuffer(url, fetchImpl);
-    }
-    if (status === "FAILED" || status === "CANCELED") {
-      throw new Error(`通义图片生成失败：${payload.message ?? status}`);
-    }
-  }
-
-  throw new Error("通义图片生成超时");
-}
-
-async function generateHunyuanImageGrid(config: AiDeckConfig, prompt: string, fetchImpl: FetchLike): Promise<Buffer> {
-  const response = await fetchImpl("https://api.hunyuan.cloud.tencent.com/v1/images/generations", {
+  const response = await fetchImpl("https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
@@ -351,21 +301,28 @@ async function generateHunyuanImageGrid(config: AiDeckConfig, prompt: string, fe
     },
     body: JSON.stringify({
       model: config.imageModel,
-      prompt,
-      n: 1,
-      size: "2048x2048",
-      response_format: "b64_json",
+      input: {
+        messages: [
+          {
+            role: "user",
+            content: [{ text: prompt }],
+          },
+        ],
+      },
+      parameters: {
+        size: "2048*2048",
+        n: 1,
+        prompt_extend: false,
+        watermark: false,
+      },
     }),
   });
   const payload = await readJson(response);
-  const image = payload.data?.[0];
-  if (image?.b64_json) {
-    return Buffer.from(image.b64_json, "base64");
+  const imageUrl = payload.output?.choices?.[0]?.message?.content?.find((entry: { image?: string }) => entry.image)?.image;
+  if (imageUrl) {
+    return fetchImageBuffer(imageUrl, fetchImpl);
   }
-  if (image?.url) {
-    return fetchImageBuffer(image.url, fetchImpl);
-  }
-  throw new Error("混元图片生成未返回图片");
+  throw new Error("千问图片生成未返回图片 URL");
 }
 
 async function fetchImageBuffer(url: string, fetchImpl: FetchLike): Promise<Buffer> {
@@ -381,12 +338,6 @@ async function readJson(response: Response): Promise<any> {
     throw new Error(`AI provider request failed: ${response.status}`);
   }
   return response.json();
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, milliseconds);
-  });
 }
 
 const imageObjectPool = [

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createRoomPayloadSchema } from "@codenames/shared";
+import { aiImageModelsByProvider, aiProviderLabels, aiProviders, createRoomPayloadSchema } from "@codenames/shared";
 
 import { createFallbackDeck } from "../src/deckService";
 import { RoomStore } from "../src/roomStore";
@@ -79,6 +79,16 @@ describe("RoomStore dealer flow", () => {
     expect(store.snapshotFor(created.roomId, spectator.playerId).players.find((player) => player.id === spectator.playerId)?.spectatorIntent).toBe(true);
   });
 
+  it("offers Qwen image models without Tencent Hunyuan", () => {
+    expect(aiProviders).toEqual(["openai", "volcano", "tongyi"]);
+    expect(aiProviderLabels.tongyi).toBe("千问");
+    expect(aiImageModelsByProvider.tongyi).toEqual([
+      "qwen-image-2.0-pro-2026-04-22",
+      "qwen-image-2.0-pro",
+      "qwen-image-2.0-pro-2026-03-03",
+    ]);
+  });
+
   it("stores image-mode host AI config privately without exposing the API key in snapshots", () => {
     const store = new RoomStore();
     const created = store.createRoom(
@@ -89,7 +99,7 @@ describe("RoomStore dealer flow", () => {
         provider: "openai",
         apiKey: "sk-private-room-key",
         textModel: "gpt-5.4-mini",
-        imageModel: "gpt-image-1.5",
+        imageModel: "gpt-image-2",
       },
     );
 
@@ -97,7 +107,7 @@ describe("RoomStore dealer flow", () => {
       provider: "openai",
       apiKey: "sk-private-room-key",
       textModel: "gpt-5.4-mini",
-      imageModel: "gpt-image-1.5",
+      imageModel: "gpt-image-2",
     });
     expect(JSON.stringify(created.snapshot)).not.toContain("sk-private-room-key");
     expect(JSON.stringify(store.snapshotFor(created.roomId, created.playerId))).not.toContain("sk-private-room-key");
@@ -113,7 +123,7 @@ describe("RoomStore dealer flow", () => {
         provider: "openai",
         apiKey: "sk-private-room-key",
         textModel: "gpt-5.4-mini",
-        imageModel: "gpt-image-1.5",
+        imageModel: "gpt-image-2",
       },
     );
 

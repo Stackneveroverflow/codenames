@@ -205,10 +205,13 @@ const modeLabels: Record<GameMode, string> = {
 const missingApiKeyError = "大模型牌库需要先配置 API Key";
 
 const imageModelLabels: Record<string, string> = {
-  "gpt-image-1.5": "ImageGen2",
+  "gpt-image-2": "ImageGen2",
   "doubao-seedream-4-0-250828": "Seedream 4",
   "doubao-seedream-4-5-251128": "Seedream 4.5",
   "doubao-seedream-5-0-260128": "Seedream 5.0 lite",
+  "qwen-image-2.0-pro-2026-04-22": "Qwen Image 2.0 Pro (2026-04-22)",
+  "qwen-image-2.0-pro": "Qwen Image 2.0 Pro",
+  "qwen-image-2.0-pro-2026-03-03": "Qwen Image 2.0 Pro (2026-03-03)",
 };
 
 function firstModel(models: readonly string[]) {
