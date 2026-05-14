@@ -1101,7 +1101,7 @@ select {
 .player-slot {
   min-height: 74px;
   display: grid;
-  grid-template-columns: 42px 1fr;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
   gap: 2px 9px;
   align-items: center;
@@ -1121,6 +1121,21 @@ select {
 
 .player-slot small {
   color: var(--paper-soft);
+}
+
+.player-kick-button {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  min-height: 34px;
+  padding: 0 9px;
+  border-color: rgba(255, 184, 170, 0.28);
+  color: #ffd2ca;
+  font-size: 0.72rem;
+}
+
+.player-kick-button svg {
+  width: 13px;
+  height: 13px;
 }
 
 .player-slot--empty {

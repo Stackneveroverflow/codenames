@@ -94,6 +94,7 @@ export interface ActivityEntry {
     | "game_started"
     | "player_joined"
     | "player_left"
+    | "player_kicked"
     | "host_transferred";
   message: string;
 }
@@ -270,6 +271,7 @@ export const createRoomPayloadSchema = z.object({
 export const joinRoomPayloadSchema = z.object({
   roomId: z.string().trim().min(4).max(8),
   nickname: z.string().trim().min(1).max(20),
+  joinToken: z.string().trim().min(8).max(80).optional(),
 });
 
 export const rejoinRoomPayloadSchema = z.object({
@@ -285,6 +287,11 @@ export const updateRoomConfigPayloadSchema = z.object({
 export const setSpectatorPayloadSchema = z.object({
   roomId: z.string(),
   spectator: z.boolean(),
+});
+
+export const kickPlayerPayloadSchema = z.object({
+  roomId: z.string(),
+  playerId: z.string(),
 });
 
 export const assignRolePayloadSchema = z.object({
@@ -334,6 +341,7 @@ export const socketEvents = {
   roomRejoin: "room:rejoin",
   roomUpdateConfig: "room:update_config",
   roomSetSpectator: "room:set_spectator",
+  roomKickPlayer: "room:kick_player",
   gameStart: "game:start",
   gameConfirmPreview: "game:confirm_preview",
   gameRegeneratePreview: "game:regenerate_preview",
@@ -347,6 +355,7 @@ export const socketEvents = {
   presenceUpdate: "presence:update",
   gameEvent: "game:event",
   connectionRestored: "connection:restored",
+  roomKicked: "room:kicked",
 } as const;
 
 export type ClientEventName =
@@ -355,6 +364,7 @@ export type ClientEventName =
   | typeof socketEvents.roomRejoin
   | typeof socketEvents.roomUpdateConfig
   | typeof socketEvents.roomSetSpectator
+  | typeof socketEvents.roomKickPlayer
   | typeof socketEvents.gameStart
   | typeof socketEvents.gameConfirmPreview
   | typeof socketEvents.gameRegeneratePreview
@@ -369,4 +379,5 @@ export type ServerEventName =
   | typeof socketEvents.roomError
   | typeof socketEvents.presenceUpdate
   | typeof socketEvents.gameEvent
-  | typeof socketEvents.connectionRestored;
+  | typeof socketEvents.connectionRestored
+  | typeof socketEvents.roomKicked;

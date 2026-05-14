@@ -30,6 +30,7 @@ function createPlayerId(): string {
 
 interface PlayerConnection {
   socketId: string | null;
+  joinToken: string | null;
 }
 
 interface StoredPlayer extends PlayerState, PlayerConnection {}
@@ -93,6 +94,7 @@ export class RoomStore {
           online: true,
           joinedAt: timestamp,
           socketId,
+          joinToken: null,
         },
       ],
     };
@@ -100,8 +102,15 @@ export class RoomStore {
     return { roomId, playerId: hostId, snapshot: this.toSnapshot(room, hostId) };
   }
 
-  joinRoom(roomId: string, nickname: string, socketId: string) {
+  joinRoom(roomId: string, nickname: string, socketId: string, joinToken: string | null = null) {
     const room = this.requireRoom(roomId);
+    const existingPlayer = joinToken ? room.players.find((player) => player.joinToken === joinToken) : undefined;
+    if (existingPlayer) {
+      existingPlayer.online = true;
+      existingPlayer.socketId = socketId;
+      this.touch(room);
+      return { playerId: existingPlayer.id, snapshot: this.toSnapshot(room, existingPlayer.id) };
+    }
     if (room.players.some((player) => player.nickname === nickname)) {
       throw new Error("昵称已存在");
     }
@@ -116,6 +125,7 @@ export class RoomStore {
       online: true,
       joinedAt: nowIso(),
       socketId,
+      joinToken,
     });
     this.touch(room, {
       type: "player_joined",
@@ -183,6 +193,31 @@ export class RoomStore {
       type: "system",
       message: `${player.nickname} ${spectatorIntent ? "进入旁观者队列" : "加入游戏玩家队列"}`,
     });
+  }
+
+  kickPlayer(roomId: string, actorId: string, targetPlayerId: string) {
+    const room = this.requireRoom(roomId);
+    this.requireHost(room, actorId);
+    if (room.phase !== "lobby") {
+      throw new Error("只能在等候房间移出玩家");
+    }
+    if (targetPlayerId === room.hostId) {
+      throw new Error("房主不能移出自己");
+    }
+    const playerIndex = room.players.findIndex((entry) => entry.id === targetPlayerId);
+    if (playerIndex === -1) {
+      throw new Error("玩家不存在");
+    }
+    const [removed] = room.players.splice(playerIndex, 1);
+    if (!removed) {
+      throw new Error("玩家不存在");
+    }
+    this.resetLobbyRoles(room);
+    this.touch(room, {
+      type: "player_kicked",
+      message: `${removed.nickname} 已被房主移出房间`,
+    });
+    return { playerId: removed.id, socketId: removed.socketId };
   }
 
   assignRole(roomId: string, actorId: string, targetPlayerId: string, role: PlayerRole) {
@@ -345,7 +380,7 @@ export class RoomStore {
       ...snapshotRoom,
       selfId: self.id,
       selfRole: self.role,
-      players: room.players.map(({ socketId: _socketId, ...player }) => player),
+      players: room.players.map(({ socketId: _socketId, joinToken: _joinToken, ...player }) => player),
       ...(canSeeKey ? { keyGrid: room.keyGrid } : {}),
       deckPreview: this.previewForSnapshot(room.deckPreview, canSeePreview),
     };

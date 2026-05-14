@@ -407,9 +407,28 @@ function readIdentity(roomId: string) {
   return readStorageIdentity(durableStorageKey, localStorage)[roomId];
 }
 
+function removeIdentity(roomId: string) {
+  for (const [key, storage] of [
+    [storageKey, sessionStorage],
+    [durableStorageKey, localStorage],
+  ] as const) {
+    try {
+      const parsed = readStorageIdentity(key, storage);
+      delete parsed[roomId];
+      storage.setItem(key, JSON.stringify(parsed));
+    } catch {
+      storage.removeItem(key);
+    }
+  }
+}
+
 function saveIdentity(roomId: string, playerId: string) {
   writeStorageIdentity(storageKey, sessionStorage, roomId, playerId);
   writeStorageIdentity(durableStorageKey, localStorage, roomId, playerId);
+}
+
+function createJoinToken() {
+  return window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function useDebouncedAction(delay = 180) {
@@ -565,6 +584,7 @@ function HomePage() {
   const [aiTextModel, setAiTextModel] = useState(firstModel(aiTextModelsByProvider.volcano));
   const [aiImageModel, setAiImageModel] = useState(defaultImageModel("volcano"));
   const [error, setError] = useState("");
+  const joinTokenRef = useRef(createJoinToken());
   const runAction = useDebouncedAction();
   useGsapEntrance(scopeRef, step);
 
@@ -580,6 +600,10 @@ function HomePage() {
   useEffect(() => {
     preloadImages(setupImageUrls);
   }, []);
+
+  useEffect(() => {
+    joinTokenRef.current = createJoinToken();
+  }, [joinCode, nickname]);
 
   useEffect(() => {
     setDeckSource(gameMode === "image" ? "ai" : "fallback");
@@ -647,7 +671,7 @@ function HomePage() {
   }
 
   function joinRoom() {
-    socket.emit(socketEvents.roomJoin, { roomId: joinCode.trim().toUpperCase(), nickname });
+    socket.emit(socketEvents.roomJoin, { roomId: joinCode.trim().toUpperCase(), nickname, joinToken: joinTokenRef.current });
   }
 
   const aiConfigured = Boolean(aiApiKey.trim());
@@ -1086,6 +1110,7 @@ function RoomPage() {
   const scopeRef = useRef<HTMLElement | null>(null);
   const { roomId = "" } = useParams();
   const socket = getSocket();
+  const navigate = useNavigate();
   const hostInfo = useHostInfo();
   const [snapshot, setSnapshot] = useState<PlayerViewSnapshot | null>(null);
   const [error, setError] = useState("");
@@ -1131,13 +1156,23 @@ function RoomPage() {
       playSound("danger");
     }
 
+    function onKicked(payload: { roomId: string; message: string }) {
+      removeIdentity(payload.roomId);
+      setSnapshot(null);
+      setError(payload.message);
+      playSound("danger");
+      navigate("/");
+    }
+
     socket.on(socketEvents.roomSnapshot, onSnapshot);
     socket.on(socketEvents.roomError, onError);
+    socket.on(socketEvents.roomKicked, onKicked);
     return () => {
       socket.off(socketEvents.roomSnapshot, onSnapshot);
       socket.off(socketEvents.roomError, onError);
+      socket.off(socketEvents.roomKicked, onKicked);
     };
-  }, [roomId, socket]);
+  }, [navigate, roomId, socket]);
 
   useEffect(() => {
     setNow(Date.now());
@@ -1198,6 +1233,7 @@ function RoomPage() {
           onRegeneratePreview={() => runAction(() => socket.emit(socketEvents.gameRegeneratePreview, { roomId }), "deal")}
           onUpdateConfig={(config) => socket.emit(socketEvents.roomUpdateConfig, { roomId, config })}
           onSetSpectator={(spectator) => runAction(() => socket.emit(socketEvents.roomSetSpectator, { roomId, spectator }), "score")}
+          onKickPlayer={(playerId) => runAction(() => socket.emit(socketEvents.roomKickPlayer, { roomId, playerId }), "danger")}
         />
       ) : (
         <BoardRoom
@@ -1400,6 +1436,7 @@ function WaitingRoom({
   onRegeneratePreview,
   onUpdateConfig,
   onSetSpectator,
+  onKickPlayer,
 }: {
   snapshot: PlayerViewSnapshot;
   onlineCount: number;
@@ -1411,6 +1448,7 @@ function WaitingRoom({
   onRegeneratePreview: () => void;
   onUpdateConfig: (config: Partial<RoomConfig>) => void;
   onSetSpectator: (spectator: boolean) => void;
+  onKickPlayer: (playerId: string) => void;
 }) {
   const participants = snapshot.players.filter((player) => !player.spectatorIntent);
   const spectators = snapshot.players.filter((player) => player.spectatorIntent);
@@ -1454,11 +1492,13 @@ function WaitingRoom({
   }
 
   function renderPlayerSlot(player: PlayerState) {
+    const canKick = isHost && player.id !== snapshot.selfId;
     return (
       <article key={player.id} className={`player-slot${player.spectatorIntent ? " player-slot--spectator" : ""}`} data-animate="card">
         <img src="/avatar-agent.webp" alt="" loading="lazy" decoding="async" />
         <span>{player.nickname}</span>
         <small>{playerMeta(snapshot, player)}</small>
+        {canKick && <IconButton icon={icons.risk} label="移出" className="secondary player-kick-button" onClick={() => onKickPlayer(player.id)} />}
       </article>
     );
   }

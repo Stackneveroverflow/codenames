@@ -7,6 +7,7 @@ import { Server } from "socket.io";
 
 import {
   joinRoomPayloadSchema,
+  kickPlayerPayloadSchema,
   rejoinRoomPayloadSchema,
   confirmDeckPreviewPayloadSchema,
   restartGamePayloadSchema,
@@ -116,12 +117,29 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
 
     socket.on(
       socketEvents.roomJoin,
-      handle(joinRoomPayloadSchema, ({ roomId, nickname }) => {
-        const joined = roomStore.joinRoom(roomId, nickname, socket.id);
+      handle(joinRoomPayloadSchema, ({ roomId, nickname, joinToken }) => {
+        const joined = roomStore.joinRoom(roomId, nickname, socket.id, joinToken ?? null);
         socket.data.playerId = joined.playerId;
         socket.data.roomId = roomId;
         socket.join(roomId);
         socket.emit(socketEvents.roomSnapshot, joined.snapshot);
+        emitSnapshot(roomId);
+      }),
+    );
+
+    socket.on(
+      socketEvents.roomKickPlayer,
+      handle(kickPlayerPayloadSchema, ({ roomId, playerId }) => {
+        const kicked = roomStore.kickPlayer(roomId, socket.data.playerId, playerId);
+        if (kicked.socketId) {
+          const kickedSocket = io.sockets.sockets.get(kicked.socketId);
+          kickedSocket?.emit(socketEvents.roomKicked, { roomId, message: "你已被房主移出房间" });
+          kickedSocket?.leave(roomId);
+          if (kickedSocket) {
+            kickedSocket.data.roomId = undefined;
+            kickedSocket.data.playerId = undefined;
+          }
+        }
         emitSnapshot(roomId);
       }),
     );

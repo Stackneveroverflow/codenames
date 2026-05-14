@@ -293,6 +293,41 @@ describe("RoomStore dealer flow", () => {
     expect(restored.selfId).toBe(created.playerId);
   });
 
+  it("reuses the same joined player when a join token is retried", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1");
+    const firstJoin = store.joinRoom(created.roomId, "乙", "socket-2", "join-token-1");
+    store.disconnect("socket-2");
+
+    const retriedJoin = store.joinRoom(created.roomId, "乙", "socket-2b", "join-token-1");
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+
+    expect(retriedJoin.playerId).toBe(firstJoin.playerId);
+    expect(snapshot.players.filter((player) => player.nickname === "乙")).toHaveLength(1);
+    expect(snapshot.players.find((player) => player.id === firstJoin.playerId)?.online).toBe(true);
+  });
+
+  it("lets the host kick a non-host player from the lobby", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1");
+    const joined = store.joinRoom(created.roomId, "乙", "socket-2");
+
+    const kicked = store.kickPlayer(created.roomId, created.playerId, joined.playerId);
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+
+    expect(kicked.socketId).toBe("socket-2");
+    expect(snapshot.players.map((player) => player.nickname)).toEqual(["甲"]);
+    expect(() => store.snapshotFor(created.roomId, joined.playerId)).toThrow("玩家不存在");
+  });
+
+  it("does not let non-host players kick others", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1");
+    const joined = store.joinRoom(created.roomId, "乙", "socket-2");
+
+    expect(() => store.kickPlayer(created.roomId, joined.playerId, created.playerId)).toThrow("只有房主可以执行此操作");
+  });
+
   it("transfers host to earliest online player on disconnect", () => {
     const store = new RoomStore();
     const created = store.createRoom("甲", "socket-1");
