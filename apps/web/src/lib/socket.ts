@@ -29,6 +29,7 @@ export function getSocket(): Socket {
   if (!socket) {
     socket = io(resolveServerUrl(), {
       autoConnect: true,
+      transports: ["websocket"],
     });
   }
   return socket;
