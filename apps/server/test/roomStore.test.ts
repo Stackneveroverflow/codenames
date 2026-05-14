@@ -65,6 +65,28 @@ describe("RoomStore dealer flow", () => {
     expect(createRoomPayloadSchema.parse({ nickname: "甲", config: { teamSize: 12 } }).config?.teamSize).toBe(12);
   });
 
+  it("clears AI deck config when the lobby switches back to text mode", () => {
+    const store = new RoomStore();
+    const created = store.createRoom(
+      "甲",
+      "socket-1",
+      { gameMode: "image" },
+      {
+        provider: "volcano",
+        apiKey: "sk-private-room-key",
+        textModel: "doubao-seed-1-6-250615",
+        imageModel: "doubao-seedream-5-0-260128",
+      },
+    );
+
+    store.updateConfig(created.roomId, created.playerId, { gameMode: "text" });
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+
+    expect(snapshot.config.gameMode).toBe("text");
+    expect(snapshot.config.deckMode).toBe("fallback");
+    expect(store.getAiConfig(created.roomId)).toBeNull();
+  });
+
   it("keeps the first twelve players in the game before queuing spectators", () => {
     const store = new RoomStore();
     const created = store.createRoom("玩家1", "socket-1", { teamSize: 12 });

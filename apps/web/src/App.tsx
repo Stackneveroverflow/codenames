@@ -1558,6 +1558,17 @@ function WaitingRoom({
         ))}
         {spectators.map(renderPlayerSlot)}
       </div>
+      <div className="lobby-mode-controls" data-animate="panel">
+        <span>返回上一级</span>
+        <div className="mode-switch-row" aria-label="情报模式">
+          <button type="button" className={`mode-switch${snapshot.config.gameMode === "text" ? " mode-switch--active" : ""}`} disabled={!isHost || isGenerating} onClick={() => onUpdateConfig({ gameMode: "text" })}>
+            文字模式
+          </button>
+          <button type="button" className={`mode-switch${snapshot.config.gameMode === "image" ? " mode-switch--active" : ""}`} disabled={!isHost || isGenerating} onClick={() => onUpdateConfig({ gameMode: "image" })}>
+            图片模式
+          </button>
+        </div>
+      </div>
       <div className="lobby-controls" data-animate="panel">
         <span>人数</span>
         <div className="inline-count-row" aria-label="人数">

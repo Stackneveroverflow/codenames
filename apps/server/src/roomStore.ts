@@ -177,7 +177,14 @@ export class RoomStore {
     if (room.phase !== "lobby") {
       throw new Error("发牌后不可修改设置，请先重新开局");
     }
-    room.config = { ...room.config, ...partial };
+    room.config = {
+      ...room.config,
+      ...partial,
+      ...(partial.gameMode === "text" ? { deckMode: "fallback" as const } : {}),
+    };
+    if (partial.gameMode === "text") {
+      room.aiConfig = null;
+    }
     this.touch(room);
   }
 

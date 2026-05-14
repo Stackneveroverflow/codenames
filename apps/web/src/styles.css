@@ -828,6 +828,7 @@ select:disabled {
 .deck-source-panel,
 .input-field,
 .host-panel,
+.lobby-mode-controls,
 .lobby-controls,
 .guide-card,
 .feedback-banner,
@@ -849,6 +850,7 @@ select:disabled {
 .input-field span,
 .board-footer span,
 .host-panel span,
+.lobby-mode-controls > span,
 .lobby-controls > span,
 .guide-card span,
 .turn-panel span {
@@ -1073,6 +1075,36 @@ select {
   align-items: center;
   gap: 9px;
   padding: 9px;
+}
+
+.lobby-mode-controls {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 9px;
+}
+
+.mode-switch-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.mode-switch {
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 226, 168, 0.18);
+  border-radius: 9px;
+  background: rgba(10, 8, 7, 0.58);
+  color: var(--paper);
+  font-size: 0.8rem;
+  font-weight: 950;
+}
+
+.mode-switch--active {
+  border-color: rgba(240, 203, 122, 0.74);
+  background: linear-gradient(180deg, var(--gold), var(--gold-deep));
+  color: var(--ink);
 }
 
 .inline-count-row {
@@ -2146,6 +2178,7 @@ select {
   }
 
   .lobby-screen > .guide-card,
+  .lobby-screen > .lobby-mode-controls,
   .lobby-screen > .lobby-controls,
   .lobby-screen > .error-text,
   .lobby-screen > .spectator-action,
@@ -2258,6 +2291,7 @@ select {
 
   .lobby-screen > .host-panel,
   .lobby-screen > .generation-banner,
+  .lobby-screen > .lobby-mode-controls,
   .lobby-screen > .lobby-controls,
   .lobby-screen > .error-text,
   .lobby-screen > .spectator-action,
