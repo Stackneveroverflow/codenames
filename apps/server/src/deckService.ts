@@ -14,6 +14,8 @@ const deckSchema = z.object({
 
 const bannedWords = ["毒品", "炸弹", "自杀", "政治", "总统", "品牌", "明星"];
 const chineseWordPattern = /^[\p{Script=Han}]{2,6}$/u;
+export const codenamesPicturesReferenceImageUrl =
+  "https://www.geekyhobbies.com/wp-content/uploads/2019/02/Codenames-Pictures-Setup.jpg";
 
 type FetchLike = typeof fetch;
 
@@ -251,7 +253,7 @@ async function generateTextWords(config: AiDeckConfig, client = createTextClient
 }
 
 async function generateImageGrid(config: AiDeckConfig, fetchImpl: FetchLike, random: () => number): Promise<Buffer> {
-  const prompt = imageGridPrompt(random);
+  const prompt = config.provider === "tongyi" ? qwenImageGridPrompt(random) : imageGridPrompt(random);
   const provider = providerDefinitions[config.provider];
 
   if (provider.imageKind === "dashscope") {
@@ -287,7 +289,12 @@ export function imageGenerationRequestOptions(config: AiDeckConfig, prompt: stri
     n: 1,
     size: "2048x2048",
     ...(config.provider !== "openai" ? { response_format: "b64_json" } : {}),
-    ...(config.provider === "volcano" ? { watermark: false } : {}),
+    ...(config.provider === "volcano"
+      ? {
+          image: codenamesPicturesReferenceImageUrl,
+          watermark: false,
+        }
+      : {}),
     ...(config.provider === "volcano" && volcanoOutputFormatImageModels.has(config.imageModel)
       ? { output_format: "png" }
       : {}),
@@ -554,32 +561,35 @@ function createImageObjectSets(random: () => number) {
   return Array.from({ length: 25 }, (_, index) => objects.slice(index * 3, index * 3 + 3).join(" + "));
 }
 
+function createImageInspirationPool(random: () => number) {
+  return sampleWords(imageCardAlts, 8, random).join("、");
+}
+
 export function imageGridPrompt(random: () => number = Math.random) {
   const seed = randomSeed(random);
   const objectSets = createImageObjectSets(random);
   return [
     `Random seed: ${seed}.`,
-    "Create one square production sprite sheet for a Codenames-style picture board with an invisible 5 by 5 crop layout.",
-    "Layout is mandatory and more important than illustration style: exactly 25 equal invisible cells, five rows and five columns, filling the full square canvas edge to edge.",
-    "Imagine hard crop guides at x = 0%, 20%, 40%, 60%, 80%, 100% and y = 0%, 20%, 40%, 60%, 80%, 100%; every composition must stay inside its own 20% by 20% crop area.",
-    "The top-left cell starts exactly at the image's top-left edge and the bottom-right cell ends exactly at the image's bottom-right edge: no outer padding, no centered board, no poster border, no frame, no page margin.",
-    "Keep the grid mathematically regular: every cell has the same size, no perspective, no tilted contact sheet, no offset rows, no collage layout, and no subject crossing into neighboring cells.",
-    "There must be no visible grid lines, cell borders, rounded card frames, drop shadows, margins, gutters, dividers, seams, or card-wall styling.",
-    "Every invisible cell gets one private three-object candidate set, in this shuffled order: " + objectSets.join("; ") + ".",
-    "For each cell, choose exactly the two most visually compatible objects from that cell's three-object candidate set, ignore the third object, and invent one centered abstract riddle-like composition from the chosen pair.",
-    "The object words are instructions only. Never draw the words themselves, never draw captions, and never draw labels.",
-    "Both chosen objects must be clearly visible and recognizable in the final cell; neither object may disappear, be merely implied, be hidden as texture, or be fused into one unrecognizable single object.",
-    "Fuse the chosen two objects through interaction, shared contour, transformation, or a small shared scene, not by simply placing them side by side or stacking them together.",
-    "Never draw a cell with only one recognizable object.",
-    "Do not add extra unlisted objects, and do not repeat the same composition in another cell.",
-    "Make all 25 compositions visually different from each other, keep each complete composition fully inside its own invisible cell, and leave at least 16 percent blank breathing room around the complete composition.",
-    "Avoid objects that usually contain writing: no signs, paper sheets, labels, packages, screens, books, maps, tickets, stamps, badges, seals, posters, documents, clocks, watches, or keyboards.",
-    "Leave a warm yellow kraft paper envelope-style background around each subject inside its invisible cell so deterministic cropping keeps the whole subject visible.",
-    "Style: monochrome black, white, and gray ink drawing on yellow kraft paper only.",
-    "Only the paper background may be warm yellow kraft paper. Subjects must be black, white, and gray only.",
-    "No colored subjects: no blue, green, red, gold, brown, sepia, watercolor accents, colored highlights, colored shadows, or tinted object fills.",
-    "Use simple readable silhouettes, clear negative space, thin dark outlines, and subtle yellow kraft paper grain.",
-    "Do not draw any text: no Chinese characters, Latin letters, numbers, glyph-like marks, captions, labels, annotations, title cards, readable text, logos, watermarks, maps, flags, UI icons, or brand-like symbols.",
-    "The output must be a single flat front-facing square image, suitable for deterministic 5 by 5 equal cropping into independent cards.",
+    "Goal: Create one square production sprite sheet for a Codenames picture board; after cropping, the 25 cells become the playable picture cards for one round.",
+    "Layout: Use exactly 25 equal invisible cells in a 5 by 5 grid, edge to edge. Hard crop guides sit at x and y = 0%, 20%, 40%, 60%, 80%, 100%. Keep every composition fully inside its own 20% by 20% cell. No outer padding, centered board, poster border, frame, page margin, visible grid, cell border, rounded card frame, shadow, gutter, divider, perspective, tilted sheet, collage layout, or cross-cell spill.",
+    "Cell briefs: Every invisible cell gets one private three-object candidate set, in this shuffled order: " + objectSets.join("; ") + ".",
+    "Composition: For each cell, choose exactly the two most visually compatible objects from that cell's three-object set, ignore the third, and invent one centered abstract riddle-like composition. The object words are instructions only. Show both chosen objects clearly and recognizably, fuse them through interaction, contour, transformation, or a small shared scene, never reduce a cell to one recognizable object, add no extra unlisted objects, keep all 25 cells visually different, and leave at least 16 percent blank breathing room around the composition.",
+    "Reference: Reference Codenames: Pictures for readable surreal clue logic and compact card-image feel.",
+    "Style: Warm yellow kraft paper background only; subjects in black, white, and gray ink only. Use simple readable silhouettes, thin dark outlines, clear negative space, and subtle paper grain. No colored subjects or tinted fills.",
+    "Hard constraints: Do not draw any text, letters, numbers, captions, labels, logos, watermarks, flags, maps, UI icons, or brand-like symbols. Output a single flat front-facing square image suitable for deterministic equal cropping into 25 independent cards.",
+  ].join(" ");
+}
+
+export function qwenImageGridPrompt(random: () => number = Math.random) {
+  const seed = randomSeed(random);
+  const inspirations = createImageInspirationPool(random);
+  return [
+    `随机种子：${seed}。`,
+    "目标：生成一张正方形的行动代号图片牌总图，按 5x5 等分裁切后得到 25 张可玩的图片牌。",
+    "布局：必须是 25 个等大的隐形格子，5 行 5 列，铺满整张画布；每个画面完整待在自己的格子里，不要越界，不要外边距，不要可见网格，不要卡框。",
+    `构图：25 格都要明显不同，不要重复或近似重复。每格必须恰好出现 2 个清晰可辨认的主体，不能只有 1 个主体，也不能把 2 个主体糊成一个难以分辨的形状。主体之间要有互动、拼接、变形或共享场景，形成适合猜词的双元素谜题画面。可从这些意象获得灵感：${inspirations}。`,
+    "参考：参考《Codenames: Pictures》的可读性、联想性和紧凑卡面感。",
+    "风格：暖黄色牛皮纸背景，主体只用黑白灰墨线和剪影，留出清晰负空间。",
+    "硬性要求：不要文字、字母、数字、Logo、水印、品牌符号。",
   ].join(" ");
 }

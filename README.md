@@ -1,6 +1,6 @@
 # 行动代号
 
-当前版本：`0.9.5`
+当前版本：`0.9.6`
 
 中文优先的《行动代号》房间、发牌和对局工具。它可以作为普通 Web 应用运行，也可以打包成桌面宿主：房主启动后，本机托管前端、HTTP API 和 Socket.IO，其他玩家通过同一局域网加入。
 
@@ -85,10 +85,10 @@ corepack pnpm desktop:pack   # 生成未压缩的桌面构建
 corepack pnpm desktop:dist   # 生成平台分发产物
 ```
 
-GitHub Release workflow 会构建并发布 Windows portable `.exe` 和 macOS `.zip`。当前 `v0.9.5` 发布产物命名为：
+GitHub Release workflow 会构建并发布 Windows portable `.exe` 和 macOS `.zip`。当前 `v0.9.6` 发布产物命名为：
 
-- `codenames-0.9.5-windows-x64.exe`
-- `codenames-0.9.5-macos-x64.zip`
+- `codenames-0.9.6-windows-x64.exe`
+- `codenames-0.9.6-macos-x64.zip`
 
 Windows 包会校验 `sharp` 的 win32 原生模块和 libvips runtime，并在打包后执行一次 `require("sharp")` 烟测，避免图片牌库运行时才暴露 native 依赖缺失。
 
@@ -106,11 +106,19 @@ Windows 包会校验 `sharp` 的 win32 原生模块和 libvips runtime，并在�
 - 支持 OpenAI、火山、千问图片模型。
 - OpenAI 默认模型显示为 `ImageGen2`，实际模型 ID 为 `gpt-image-2`。
 - 火山默认模型显示为 `Seedream 4.5`。
+- 火山生图会附带一张 `Codenames: Pictures` 参考图，帮助维持卡牌可读性和卡面气质。
 - 千问可选模型为 `qwen-image-2.0-pro-2026-04-22`、`qwen-image-2.0-pro`、`qwen-image-2.0-pro-2026-03-03`。
+- 千问使用单独的中文短提示词，强化 `25` 格低重复和每格双主体约束。
 - API Key 只在创建房间请求中提交给房主服务器，不应写入仓库。
 - 大模型生成失败时不会自动回退到本地牌库。
 - 服务端会把生成的整张 `5x5` 图片切成 `25` 张牌并缓存在内存中。
 - 本地图片占位牌库使用轻量 WebP 素材，减少桌面包体积和模式页加载等待。
+
+## 0.9.6 更新重点
+
+- 图片大模型提示词改成结构化模板，分为目标、布局、构图、参考、风格和硬性要求。
+- 火山 Seedream 请求加入固定参考图，提升图片牌的参考方向稳定性。
+- 千问图片模型改用中文短提示词，明确要求 `25` 格不要重复，并且每格必须有 `2` 个清晰主体。
 
 ## 0.9.5 更新重点
 
