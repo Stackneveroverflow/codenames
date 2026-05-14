@@ -21,7 +21,7 @@ function desktopInviteBase(currentUrl: URL, hostInfo?: HostInfo | null) {
 export function canCopyInviteLink(currentHref: string, hostInfo?: HostInfo | null) {
   const currentUrl = new URL(currentHref);
   if (isDevEntryPort(currentUrl.port)) {
-    return true;
+    return !isLoopbackHost(currentUrl.hostname) || Boolean(hostInfo?.lanUrls[0]);
   }
   return Boolean(desktopInviteBase(currentUrl, hostInfo));
 }
@@ -30,6 +30,9 @@ export function entryJoinUrl(roomId: string, currentHref: string, hostInfo?: Hos
   const target = new URL(currentHref);
 
   if (isDevEntryPort(target.port)) {
+    if (hostInfo?.lanUrls[0]) {
+      target.hostname = new URL(hostInfo.lanUrls[0]).hostname;
+    }
     target.port = "5174";
     target.pathname = "/";
   } else {

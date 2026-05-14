@@ -584,6 +584,7 @@ function HomePage() {
   const [aiTextModel, setAiTextModel] = useState(firstModel(aiTextModelsByProvider.volcano));
   const [aiImageModel, setAiImageModel] = useState(defaultImageModel("volcano"));
   const [error, setError] = useState("");
+  const [joining, setJoining] = useState(false);
   const joinTokenRef = useRef(createJoinToken());
   const runAction = useDebouncedAction();
   useGsapEntrance(scopeRef, step);
@@ -621,11 +622,13 @@ function HomePage() {
 
   useEffect(() => {
     function onSnapshot(snapshot: PlayerViewSnapshot) {
+      setJoining(false);
       saveIdentity(snapshot.roomId, snapshot.selfId);
       navigate(`/room/${snapshot.roomId}`);
     }
 
     function onError(payload: { message: string }) {
+      setJoining(false);
       setError(payload.message);
       playSound("danger");
     }
@@ -637,6 +640,18 @@ function HomePage() {
       socket.off(socketEvents.roomError, onError);
     };
   }, [navigate, socket]);
+
+  useEffect(() => {
+    if (!joining) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setJoining(false);
+      setError("加入房间没有响应，请确认复制链接的 IP 与房主服务器一致，并且房主服务器在线。");
+      playSound("danger");
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [joining]);
 
   function createRoom() {
     const trimmedKey = aiApiKey.trim();
@@ -671,6 +686,8 @@ function HomePage() {
   }
 
   function joinRoom() {
+    setError("");
+    setJoining(true);
     socket.emit(socketEvents.roomJoin, { roomId: joinCode.trim().toUpperCase(), nickname, joinToken: joinTokenRef.current });
   }
 
@@ -774,7 +791,7 @@ function HomePage() {
               </label>
               <GuideCard items={["房间码不区分大小写", "队长答案只在授权账号显示", "断线后会尝试恢复当前身份"]} />
               {error && <ErrorText message={error} />}
-              <FooterNav back={() => runAction(() => setStep("home"))} next={() => runAction(joinRoom, "deal")} nextLabel="加入房间" nextDisabled={!joinCode.trim() || !nickname.trim()} />
+              <FooterNav back={() => runAction(() => setStep("home"))} next={() => runAction(joinRoom, "deal")} nextLabel={joining ? "接入中" : "加入房间"} nextDisabled={joining || !joinCode.trim() || !nickname.trim()} />
             </section>
           )}
         </>
