@@ -12,6 +12,9 @@ export type TeamName = (typeof teamNames)[number];
 export const gameModes = ["text", "image"] as const;
 export type GameMode = (typeof gameModes)[number];
 
+export const teamAssignmentModes = ["random", "fixed"] as const;
+export type TeamAssignmentMode = (typeof teamAssignmentModes)[number];
+
 export const aiProviders = ["openai", "volcano", "tongyi"] as const;
 export type AiProvider = (typeof aiProviders)[number];
 
@@ -29,8 +32,8 @@ export const aiTextModelsByProvider: Record<AiProvider, readonly string[]> = {
 
 export const aiImageModelsByProvider: Record<AiProvider, readonly string[]> = {
   openai: ["gpt-image-2"],
-  volcano: ["doubao-seedream-4-0-250828", "doubao-seedream-4-5-251128", "doubao-seedream-5-0-260128"],
-  tongyi: ["qwen-image-2.0-pro-2026-04-22", "qwen-image-2.0-pro", "qwen-image-2.0-pro-2026-03-03"],
+  volcano: ["doubao-seedream-5-0-260128"],
+  tongyi: [],
 };
 
 export interface AiDeckConfig {
@@ -53,6 +56,11 @@ export const playerRoles = [
 ] as const;
 export type PlayerRole = (typeof playerRoles)[number];
 
+export type LobbySeat =
+  | { type: "spymaster"; team: TeamName }
+  | { type: "operative"; team: TeamName; index: number }
+  | { type: "spectator"; index: number };
+
 export type CardContent =
   | { type: "word"; text: string }
   | { type: "image"; imageUrl: string; alt: string };
@@ -73,6 +81,7 @@ export interface PlayerState {
   nickname: string;
   role: PlayerRole;
   spectatorIntent: boolean;
+  lobbySeat?: LobbySeat | null;
   online: boolean;
   joinedAt: string;
 }
@@ -81,6 +90,7 @@ export interface RoomConfig {
   locale: "zh-CN";
   gameMode: GameMode;
   deckMode: "ai" | "fallback";
+  teamAssignmentMode: TeamAssignmentMode;
   teamSize: TeamSize;
   boardSize: "classic";
 }
@@ -161,6 +171,7 @@ export interface RoomState {
 export interface PlayerViewSnapshot extends Omit<RoomState, "keyGrid" | "deckPreview"> {
   selfId: string;
   selfRole: PlayerRole;
+  confirmedDeckReady: boolean;
   keyGrid?: KeyCellState[] | null;
   deckPreview?: DeckPreviewState | null;
 }
@@ -183,10 +194,10 @@ export function findForbiddenClueText(board: PublicCardState[], clueText: string
   const clueChars = new Set([...normalizedClue].filter((char) => char.trim()));
 
   for (const card of board) {
-    if (card.content.type === "image") {
+    if (card.content.type !== "word") {
       continue;
     }
-    const displayText = cardDisplayText(card).trim();
+    const displayText = card.content.text.trim();
     for (const char of displayText.toLocaleLowerCase()) {
       if (char.trim() && clueChars.has(char)) {
         return char;
@@ -224,6 +235,7 @@ export const roomConfigSchema = z.object({
   locale: z.literal("zh-CN"),
   gameMode: z.enum(gameModes),
   deckMode: z.enum(["ai", "fallback"]),
+  teamAssignmentMode: z.enum(teamAssignmentModes),
   teamSize: z.union([
     z.literal(4),
     z.literal(5),
@@ -237,6 +249,22 @@ export const roomConfigSchema = z.object({
   ]),
   boardSize: z.literal("classic"),
 });
+
+export const lobbySeatSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("spymaster"),
+    team: z.enum(teamNames),
+  }),
+  z.object({
+    type: z.literal("operative"),
+    team: z.enum(teamNames),
+    index: z.number().int().min(1).max(6),
+  }),
+  z.object({
+    type: z.literal("spectator"),
+    index: z.number().int().min(1).max(3),
+  }),
+]);
 
 export const aiDeckConfigSchema = z
   .object({
@@ -264,7 +292,7 @@ export const aiDeckConfigSchema = z
 
 export const createRoomPayloadSchema = z.object({
   nickname: z.string().trim().min(1).max(20),
-  config: roomConfigSchema.pick({ gameMode: true, teamSize: true }).partial().optional(),
+  config: roomConfigSchema.pick({ gameMode: true, teamSize: true, teamAssignmentMode: true }).partial().optional(),
   aiConfig: aiDeckConfigSchema.optional(),
 });
 
@@ -287,6 +315,11 @@ export const updateRoomConfigPayloadSchema = z.object({
 export const setSpectatorPayloadSchema = z.object({
   roomId: z.string(),
   spectator: z.boolean(),
+});
+
+export const moveSeatPayloadSchema = z.object({
+  roomId: z.string(),
+  seat: lobbySeatSchema.nullable(),
 });
 
 export const kickPlayerPayloadSchema = z.object({
@@ -322,8 +355,8 @@ export const returnToLobbyPayloadSchema = z.object({
 
 export const submitCluePayloadSchema = z.object({
   roomId: z.string(),
-  clue: z.string().trim().min(1).max(20),
-  count: z.number().int().min(0).max(9),
+  clue: z.string().trim().min(1).max(4).regex(/^[\p{Script=Han}]{1,4}$/u, "线索只能是1到4个汉字"),
+  count: z.number().int().min(1, "线索数量必须大于0").max(9),
 });
 
 export const guessCardPayloadSchema = z.object({
@@ -341,6 +374,7 @@ export const socketEvents = {
   roomRejoin: "room:rejoin",
   roomUpdateConfig: "room:update_config",
   roomSetSpectator: "room:set_spectator",
+  roomMoveSeat: "room:move_seat",
   roomKickPlayer: "room:kick_player",
   gameStart: "game:start",
   gameConfirmPreview: "game:confirm_preview",
@@ -364,6 +398,7 @@ export type ClientEventName =
   | typeof socketEvents.roomRejoin
   | typeof socketEvents.roomUpdateConfig
   | typeof socketEvents.roomSetSpectator
+  | typeof socketEvents.roomMoveSeat
   | typeof socketEvents.roomKickPlayer
   | typeof socketEvents.gameStart
   | typeof socketEvents.gameConfirmPreview

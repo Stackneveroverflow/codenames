@@ -18,6 +18,7 @@ import {
   startGamePayloadSchema,
   updateRoomConfigPayloadSchema,
   createRoomPayloadSchema,
+  moveSeatPayloadSchema,
   submitCluePayloadSchema,
   guessCardPayloadSchema,
   endTurnPayloadSchema,
@@ -174,10 +175,23 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
     );
 
     socket.on(
+      socketEvents.roomMoveSeat,
+      handle(moveSeatPayloadSchema, ({ roomId, seat }) => {
+        roomStore.moveSeat(roomId, socket.data.playerId, seat);
+        emitSnapshot(roomId);
+      }),
+    );
+
+    socket.on(
       socketEvents.gameStart,
       handle(startGamePayloadSchema, async ({ roomId }) => {
         const config = roomStore.getConfig(roomId);
         const aiConfig = roomStore.getAiConfig(roomId);
+        if (config.gameMode === "image" && roomStore.hasConfirmedImageDeck(roomId)) {
+          roomStore.startPendingImageDeck(roomId, socket.data.playerId);
+          emitSnapshot(roomId);
+          return;
+        }
         if (aiConfig) {
           roomStore.setDeckGeneration(roomId, socket.data.playerId, {
             active: true,
@@ -213,7 +227,7 @@ export function createAppServer(options: AppServerOptions = {}): AppServer {
         }
         roomStore.setDeckGeneration(roomId, socket.data.playerId, {
           active: true,
-          message: "AI 正在重新生成 5x5 图片牌阵",
+          message: roomStore.hasConfirmedImageDeck(roomId) ? "AI 正在重新生成 5x5 图片牌阵" : "AI 正在生成 5x5 图片牌阵",
         });
         emitSnapshot(roomId);
         try {

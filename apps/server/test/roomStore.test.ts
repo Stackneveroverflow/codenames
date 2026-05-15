@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { aiImageModelsByProvider, aiProviderLabels, aiProviders, createRoomPayloadSchema } from "@codenames/shared";
+import { aiImageModelsByProvider, aiProviderLabels, aiProviders, createRoomPayloadSchema, submitCluePayloadSchema } from "@codenames/shared";
 
 import { createFallbackDeck } from "../src/deckService";
 import { RoomStore } from "../src/roomStore";
@@ -65,6 +65,64 @@ describe("RoomStore dealer flow", () => {
     expect(createRoomPayloadSchema.parse({ nickname: "甲", config: { teamSize: 12 } }).config?.teamSize).toBe(12);
   });
 
+  it("defaults fixed-team players into balanced ordinary seats", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1", { teamAssignmentMode: "fixed" });
+    const second = store.joinRoom(created.roomId, "乙", "socket-2");
+    const third = store.joinRoom(created.roomId, "丙", "socket-3");
+    const fourth = store.joinRoom(created.roomId, "丁", "socket-4");
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+
+    expect(snapshot.config.teamAssignmentMode).toBe("fixed");
+    expect(snapshot.players.find((player) => player.id === created.playerId)?.lobbySeat).toEqual({ type: "operative", team: "red", index: 1 });
+    expect(snapshot.players.find((player) => player.id === second.playerId)?.lobbySeat).toEqual({ type: "operative", team: "blue", index: 1 });
+    expect(snapshot.players.find((player) => player.id === third.playerId)?.lobbySeat).toEqual({ type: "operative", team: "red", index: 2 });
+    expect(snapshot.players.find((player) => player.id === fourth.playerId)?.lobbySeat).toEqual({ type: "operative", team: "blue", index: 2 });
+  });
+
+  it("uses occupied fixed captain seats as spymasters", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1", { teamAssignmentMode: "fixed" });
+    const second = store.joinRoom(created.roomId, "乙", "socket-2");
+    const third = store.joinRoom(created.roomId, "丙", "socket-3");
+    const fourth = store.joinRoom(created.roomId, "丁", "socket-4");
+
+    store.moveSeat(created.roomId, third.playerId, { type: "spymaster", team: "red" });
+    store.moveSeat(created.roomId, fourth.playerId, { type: "spymaster", team: "blue" });
+    store.startGame(created.roomId, created.playerId, createFallbackDeck("text"));
+
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+    expect(snapshot.teams?.red.spymasterId).toBe(third.playerId);
+    expect(snapshot.teams?.blue.spymasterId).toBe(fourth.playerId);
+    expect(snapshot.teams?.red.operativeIds).toEqual([created.playerId]);
+    expect(snapshot.teams?.blue.operativeIds).toEqual([second.playerId]);
+  });
+
+  it("randomly promotes a fixed-team ordinary player when a captain seat is empty", () => {
+    const store = new RoomStore();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const created = store.createRoom("甲", "socket-1", { teamAssignmentMode: "fixed" });
+    const second = store.joinRoom(created.roomId, "乙", "socket-2");
+    const third = store.joinRoom(created.roomId, "丙", "socket-3");
+    const fourth = store.joinRoom(created.roomId, "丁", "socket-4");
+
+    store.startGame(created.roomId, created.playerId, createFallbackDeck("text"));
+
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+    expect(snapshot.teams?.red.spymasterId).toBe(created.playerId);
+    expect(snapshot.teams?.red.operativeIds).toEqual([third.playerId]);
+    expect(snapshot.teams?.blue.spymasterId).toBe(second.playerId);
+    expect(snapshot.teams?.blue.operativeIds).toEqual([fourth.playerId]);
+  });
+
+  it("rejects moving into an occupied fixed-team seat", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1", { teamAssignmentMode: "fixed" });
+    const second = store.joinRoom(created.roomId, "乙", "socket-2");
+
+    expect(() => store.moveSeat(created.roomId, second.playerId, { type: "operative", team: "red", index: 1 })).toThrow("该位置已有玩家");
+  });
+
   it("clears AI deck config when the lobby switches back to text mode", () => {
     const store = new RoomStore();
     const created = store.createRoom(
@@ -101,14 +159,12 @@ describe("RoomStore dealer flow", () => {
     expect(store.snapshotFor(created.roomId, spectator.playerId).players.find((player) => player.id === spectator.playerId)?.spectatorIntent).toBe(true);
   });
 
-  it("offers Qwen image models without Tencent Hunyuan", () => {
+  it("offers only supported image models by provider", () => {
     expect(aiProviders).toEqual(["openai", "volcano", "tongyi"]);
     expect(aiProviderLabels.tongyi).toBe("千问");
-    expect(aiImageModelsByProvider.tongyi).toEqual([
-      "qwen-image-2.0-pro-2026-04-22",
-      "qwen-image-2.0-pro",
-      "qwen-image-2.0-pro-2026-03-03",
-    ]);
+    expect(aiImageModelsByProvider.openai).toEqual(["gpt-image-2"]);
+    expect(aiImageModelsByProvider.volcano).toEqual(["doubao-seedream-5-0-260128"]);
+    expect(aiImageModelsByProvider.tongyi).toEqual([]);
   });
 
   it("stores image-mode host AI config privately without exposing the API key in snapshots", () => {
@@ -169,7 +225,7 @@ describe("RoomStore dealer flow", () => {
     expect(snapshot.board?.[0]?.content.type).toBe("image");
   });
 
-  it("keeps an AI image deck in host preview until the host confirms it", () => {
+  it("keeps an AI image deck in host preview until the host confirms it and starts", () => {
     const store = new RoomStore();
     const created = store.createRoom("甲", "socket-1", { gameMode: "image" });
     const second = store.joinRoom(created.roomId, "乙", "socket-2");
@@ -190,10 +246,19 @@ describe("RoomStore dealer flow", () => {
 
     store.confirmImagePreview(created.roomId, created.playerId);
 
+    const confirmed = store.snapshotFor(created.roomId, created.playerId);
+    expect(confirmed.phase).toBe("lobby");
+    expect(confirmed.board).toBeNull();
+    expect(confirmed.deckPreview).toBeNull();
+    expect(confirmed.confirmedDeckReady).toBe(true);
+
+    store.startPendingImageDeck(created.roomId, created.playerId);
+
     const dealt = store.snapshotFor(created.roomId, created.playerId);
     expect(dealt.phase).toBe("dealt");
     expect(dealt.board).toHaveLength(25);
     expect(dealt.deckPreview).toBeNull();
+    expect(dealt.confirmedDeckReady).toBe(false);
     expect(dealt.board?.map((card) => card.content)).toEqual(deck.contents);
   });
 
@@ -220,6 +285,13 @@ describe("RoomStore dealer flow", () => {
     expect(preview.deckPreview?.board?.[0]?.content).toEqual(replacementDeck.contents[0]);
 
     store.confirmImagePreview(created.roomId, created.playerId);
+
+    const confirmed = store.snapshotFor(created.roomId, created.playerId);
+    expect(confirmed.phase).toBe("lobby");
+    expect(confirmed.board).toBeNull();
+    expect(confirmed.confirmedDeckReady).toBe(true);
+
+    store.startPendingImageDeck(created.roomId, created.playerId);
 
     const dealt = store.snapshotFor(created.roomId, created.playerId);
     expect(dealt.phase).toBe("dealt");
@@ -315,6 +387,26 @@ describe("RoomStore dealer flow", () => {
     expect(restored.selfId).toBe(created.playerId);
   });
 
+  it("restores an offline player by nickname in the same room", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1");
+    const joined = store.joinRoom(created.roomId, "乙", "socket-2");
+    store.disconnect("socket-2");
+
+    const restored = store.joinRoom(created.roomId, "乙", "socket-2b");
+
+    expect(restored.playerId).toBe(joined.playerId);
+    expect(store.snapshotFor(created.roomId, joined.playerId).players.filter((player) => player.nickname === "乙")).toHaveLength(1);
+  });
+
+  it("does not let a nickname link take over an online player", () => {
+    const store = new RoomStore();
+    const created = store.createRoom("甲", "socket-1");
+    store.joinRoom(created.roomId, "乙", "socket-2");
+
+    expect(() => store.joinRoom(created.roomId, "乙", "socket-2b")).toThrow("昵称已存在");
+  });
+
   it("reuses the same joined player when a join token is retried", () => {
     const store = new RoomStore();
     const created = store.createRoom("甲", "socket-1");
@@ -368,13 +460,30 @@ describe("RoomStore dealer flow", () => {
     const activeSpymaster = snapshot.turn!.activePlayerId!;
     const otherPlayer = snapshot.players.find((player) => player.id !== activeSpymaster)!;
 
-    expect(() => store.submitClue(created.roomId, otherPlayer.id, "Ω", 2)).toThrow("只有当前队长可以提交线索");
-    store.submitClue(created.roomId, activeSpymaster, "Ω", 2);
+    expect(() => store.submitClue(created.roomId, otherPlayer.id, "鲲", 2)).toThrow("只有当前队长可以提交线索");
+    store.submitClue(created.roomId, activeSpymaster, "鲲", 2);
 
     const next = store.snapshotFor(created.roomId, activeSpymaster);
     expect(next.turn?.phase).toBe("guess");
-    expect(next.turn?.clue).toEqual({ text: "Ω", count: 2 });
+    expect(next.turn?.clue).toEqual({ text: "鲲", count: 2 });
     expect(next.turn?.remainingGuesses).toBe(3);
+  });
+
+  it("rejects clues outside one to four chinese characters", () => {
+    expect(() => submitCluePayloadSchema.parse({ roomId: "ABCD", clue: "ABCDE", count: 1 })).toThrow();
+    expect(() => submitCluePayloadSchema.parse({ roomId: "ABCD", clue: "五个汉字啊", count: 1 })).toThrow();
+    expect(() => submitCluePayloadSchema.parse({ roomId: "ABCD", clue: "鲲", count: 0 })).toThrow();
+
+    const store = new RoomStore();
+    const { created } = createFourPlayerRoom(store);
+    store.startGame(created.roomId, created.playerId, createFallbackDeck("text"));
+    const snapshot = store.snapshotFor(created.roomId, created.playerId);
+    const activeSpymaster = snapshot.turn!.activePlayerId!;
+
+    expect(() => store.submitClue(created.roomId, activeSpymaster, "AB", 1)).toThrow("线索只能是1到4个汉字");
+    expect(() => store.submitClue(created.roomId, activeSpymaster, "鲲", 0)).toThrow("线索数量必须大于0");
+    store.submitClue(created.roomId, activeSpymaster, "鲲鹏", 1);
+    expect(store.snapshotFor(created.roomId, activeSpymaster).turn?.clue?.text).toBe("鲲鹏");
   });
 
   it("rejects clues that contain any board word character", () => {
@@ -388,12 +497,12 @@ describe("RoomStore dealer flow", () => {
 
     expect(() => store.submitClue(created.roomId, activeSpymaster, `${boardChar}风`, 2)).toThrow(`线索不能包含牌阵中出现的字：${boardChar}，请重新输入`);
 
-    store.submitClue(created.roomId, activeSpymaster, "Ω", 2);
+    store.submitClue(created.roomId, activeSpymaster, "鲲", 2);
     const next = store.snapshotFor(created.roomId, activeSpymaster);
     expect(next.turn?.phase).toBe("guess");
   });
 
-  it("does not reject image clues based on image alt text", () => {
+  it("allows image clues even when they match image alt text", () => {
     const store = new RoomStore();
     const { created } = createFourPlayerRoom(store);
     store.updateConfig(created.roomId, created.playerId, { gameMode: "image" });
@@ -401,10 +510,10 @@ describe("RoomStore dealer flow", () => {
     const snapshot = store.snapshotFor(created.roomId, created.playerId);
     const activeSpymaster = snapshot.turn!.activePlayerId!;
     const alt = snapshot.board![0]!.content.type === "image" ? snapshot.board![0]!.content.alt : "";
+    const altChar = [...alt].find((char) => char.trim())!;
 
-    store.submitClue(created.roomId, activeSpymaster, `${alt}线索`, 1);
-    const next = store.snapshotFor(created.roomId, activeSpymaster);
-    expect(next.turn?.phase).toBe("guess");
+    store.submitClue(created.roomId, activeSpymaster, `${altChar}风`, 1);
+    expect(store.snapshotFor(created.roomId, activeSpymaster).turn?.phase).toBe("guess");
   });
 
   it("allows only the active operative to guess and end turns", () => {
@@ -412,7 +521,7 @@ describe("RoomStore dealer flow", () => {
     const { created } = createFourPlayerRoom(store);
     store.startGame(created.roomId, created.playerId, createFallbackDeck("text"));
     const initial = store.snapshotFor(created.roomId, created.playerId);
-    store.submitClue(created.roomId, initial.turn!.activePlayerId!, "Ω", 1);
+    store.submitClue(created.roomId, initial.turn!.activePlayerId!, "鲲", 1);
     const guessing = store.snapshotFor(created.roomId, created.playerId);
     const activeOperative = guessing.turn!.activePlayerId!;
     const otherPlayer = guessing.players.find((player) => player.id !== activeOperative)!;
@@ -430,7 +539,7 @@ describe("RoomStore dealer flow", () => {
     const { created } = createFourPlayerRoom(store);
     store.startGame(created.roomId, created.playerId, createFallbackDeck("text"));
     const initial = store.snapshotFor(created.roomId, created.playerId);
-    store.submitClue(created.roomId, initial.turn!.activePlayerId!, "Ω", 1);
+    store.submitClue(created.roomId, initial.turn!.activePlayerId!, "鲲", 1);
     const guessing = store.snapshotFor(created.roomId, created.playerId);
     store.guessCard(created.roomId, guessing.turn!.activePlayerId!, guessing.board![0]!.id);
 

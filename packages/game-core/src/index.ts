@@ -136,8 +136,8 @@ export function submitClue(turn: TurnState, teams: GameTeams, clueText: string, 
   if (turn.phase !== "clue" || turn.result) {
     throw new Error("当前不能提交线索");
   }
-  if (count < 0) {
-    throw new Error("线索数量不能小于0");
+  if (count <= 0) {
+    throw new Error("线索数量必须大于0");
   }
   if (count > turn.remainingByTeam[turn.currentTeam]) {
     throw new Error("线索数量不能大于己方剩余牌数");

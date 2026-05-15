@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import {
   codenamesPicturesReferenceImageUrl,
@@ -8,7 +8,6 @@ import {
   generateAiDeck,
   imageGenerationRequestOptions,
   imageGridPrompt,
-  qwenImageGridPrompt,
   validateWords,
 } from "../src/deckService";
 import { fallbackWords } from "../src/fallbackWords";
@@ -138,19 +137,38 @@ describe("deckService", () => {
   it("creates a 25-card fallback image deck with unique alt text", () => {
     const deck = createFallbackDeck("image");
     const alts = deck.contents.map((card) => (card.type === "image" ? card.alt : ""));
+    const urls = deck.contents.map((card) => (card.type === "image" ? card.imageUrl : ""));
 
     expect(deck.contents).toHaveLength(25);
     expect(deck.contents.every((card) => card.type === "image")).toBe(true);
     expect(new Set(alts).size).toBe(25);
+    expect(alts).toEqual(expect.arrayContaining(["超人", "钢铁侠", "汉堡", "披萨", "特洛伊木马攻城", "扳手蜘蛛"]));
+    expect(urls.every((url, index) => url === `/fallback-image-cards/card-${String(index + 1).padStart(2, "0")}.webp`)).toBe(true);
+    expect(urls.every((url) => existsSync(`../web/public${url}`))).toBe(true);
   });
 
-  it("keeps a broad 200-item image object pool for varied generated combinations", () => {
+  it("keeps separate image subject pools for single subjects and fused objects", () => {
     const source = readFileSync("src/deckService.ts", "utf8");
     const poolSource = source.match(/const imageObjectPool = \[([\s\S]*?)\];/)?.[1] ?? "";
     const objects = [...poolSource.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+    const singlePoolSource = source.match(/const imageSingleSubjectPool = \[([\s\S]*?)\];/)?.[1] ?? "";
+    const singles = [...singlePoolSource.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 
-    expect(objects).toHaveLength(200);
-    expect(new Set(objects).size).toBe(200);
+    expect(objects.length).toBeGreaterThanOrEqual(300);
+    expect(new Set(objects).size).toBe(objects.length);
+    expect(objects).toEqual(expect.arrayContaining(["wrench", "spider", "vase", "chopsticks", "dumpling", "radio microphone"]));
+    expect(singles.length).toBeGreaterThanOrEqual(160);
+    expect(new Set(singles).size).toBe(singles.length);
+    expect(singles.join(" ")).toContain("caped flying hero");
+    expect(singles.join(" ")).toContain("wooden horse siege");
+    expect(singles.join(" ")).toContain("aircraft carrier");
+    expect(singles.join(" ")).toContain("supermarket aisle");
+    expect(singles.join(" ")).toContain("amusement park");
+    expect(singles.join(" ")).toContain("rocket launch pad");
+    expect(singles.join(" ")).toContain("planet Mars");
+    expect(singles.join(" ")).toContain("astronaut");
+    expect(singles.join(" ")).toContain("basketball player");
+    expect(singles.join(" ")).toContain("watching television");
   });
 
   it("asks image models for an invisible 5 by 5 layout without visible card frames", () => {
@@ -174,12 +192,14 @@ describe("deckService", () => {
     expect(prompt).toContain("shadow");
     expect(prompt).toContain("gutter");
     expect(prompt).toContain("Cell briefs:");
-    expect(prompt).toContain("choose exactly the two most visually compatible objects");
+    expect(prompt).toContain("single subject:");
+    expect(prompt).toContain("fusion subjects:");
+    expect(prompt).toContain("Exactly 5 cells use their single-subject brief");
+    expect(prompt).toContain("Exactly 20 cells use their fusion-subject brief");
+    expect(prompt).toContain("choose the two most visually compatible objects");
     expect(prompt).toContain("ignore the third");
-    expect(prompt).toContain("Show both chosen objects clearly and recognizably");
-    expect(prompt).toContain("never reduce a cell to one recognizable object");
-    expect(prompt).toContain("fuse them through interaction");
-    expect(prompt).toContain("abstract riddle-like composition");
+    expect(prompt).toContain("show both chosen objects clearly");
+    expect(prompt).toContain("avoid branded costume details");
     expect(prompt).toContain("Codenames: Pictures");
     expect(prompt).toContain("yellow kraft paper");
     expect(prompt).toContain("black, white, and gray ink only");
@@ -202,27 +222,6 @@ describe("deckService", () => {
     expect(secondPrompt).toContain("Random seed");
   });
 
-  it("uses a shorter dedicated prompt for Qwen image boards", () => {
-    const prompt = qwenImageGridPrompt(() => 0);
-
-    expect(prompt).toContain("随机种子：");
-    expect(prompt).toContain("目标：");
-    expect(prompt).toContain("布局：");
-    expect(prompt).toContain("构图：");
-    expect(prompt).toContain("参考：");
-    expect(prompt).toContain("风格：");
-    expect(prompt).toContain("硬性要求：");
-    expect(prompt).toContain("行动代号图片牌总图");
-    expect(prompt).toContain("25 张可玩的图片牌");
-    expect(prompt).toContain("《Codenames: Pictures》");
-    expect(prompt).toContain("每格必须恰好出现 2 个清晰可辨认的主体");
-    expect(prompt).toContain("不要重复或近似重复");
-    expect(prompt).not.toContain("do not copy any published card");
-    expect(prompt).not.toContain("Goal:");
-    expect(prompt.length).toBeLessThan(800);
-    expect(prompt.length).toBeLessThan(imageGridPrompt(() => 0).length);
-  });
-
   it("uses OpenAI ImageGen2 without legacy response_format", () => {
     const request = imageGenerationRequestOptions(aiConfig, "prompt");
 
@@ -233,99 +232,6 @@ describe("deckService", () => {
       size: "2048x2048",
     });
     expect(request).not.toHaveProperty("response_format");
-  });
-
-  it("calls the synchronous Qwen image endpoint for Qwen Image 2.0 Pro", async () => {
-    const imageStore = new GeneratedImageStore();
-    const gridSvg = Buffer.from(`
-      <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">
-        <rect width="512" height="512" fill="#e0c36b"/>
-        ${Array.from({ length: 25 }, (_, index) => {
-          const x = (index % 5) * 102;
-          const y = Math.floor(index / 5) * 102;
-          return `<rect x="${x + 8}" y="${y + 8}" width="86" height="86" fill="#333333"/>`;
-        }).join("")}
-      </svg>
-    `);
-    const fetchMock = vi.fn(async (url: string | URL | Request) => {
-      const target = String(url);
-      if (target.includes("/multimodal-generation/generation")) {
-        return new Response(
-          JSON.stringify({
-            output: {
-              choices: [
-                {
-                  message: {
-                    content: [{ image: "https://dashscope-result.aliyuncs.com/qwen-grid.png" }],
-                  },
-                },
-              ],
-            },
-          }),
-          { status: 200 },
-        );
-      }
-      return new Response(gridSvg, { status: 200 });
-    });
-
-    const deck = await generateAiDeck({
-      mode: "image",
-      aiConfig: {
-        provider: "tongyi",
-        apiKey: "sk-test",
-        textModel: "qwen-plus",
-        imageModel: "qwen-image-2.0-pro-2026-04-22",
-      },
-      imageStore,
-      roomId: "ROOM1",
-      fetchImpl: fetchMock as never,
-    });
-
-    const request = fetchMock.mock.calls[0]!;
-    const body = JSON.parse(request[1].body);
-    expect(request[0]).toBe("https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation");
-    expect(request[1].headers).not.toHaveProperty("X-DashScope-Async");
-    expect(body.model).toBe("qwen-image-2.0-pro-2026-04-22");
-    expect(body.input.messages[0].content[0].text).toContain("目标：");
-    expect(body.input.messages[0].content[0].text).toContain("25 张可玩的图片牌");
-    expect(body.input.messages[0].content[0].text).toContain("《Codenames: Pictures》");
-    expect(body.input.messages[0].content[0].text).toContain("每格必须恰好出现 2 个清晰可辨认的主体");
-    expect(body.input.messages[0].content[0].text).toContain("不要重复或近似重复");
-    expect(body.input.messages[0].content[0].text).not.toContain("private three-object candidate set");
-    expect(body.input.messages[0].content[0].text).not.toContain("do not copy any published card");
-    expect(body.input.messages[0].content[0].text).not.toContain("Goal:");
-    expect(body.input.messages[0].content[0].text.length).toBeLessThan(800);
-    expect(body.parameters).toMatchObject({
-      size: "2048*2048",
-      n: 1,
-      prompt_extend: false,
-      watermark: false,
-    });
-    expect(deck.mode).toBe("ai");
-    expect(deck.contents).toHaveLength(25);
-  });
-
-  it("omits output_format for Volcano Seedream 4.5 image requests", () => {
-    const request = imageGenerationRequestOptions(
-      {
-        provider: "volcano",
-        apiKey: "sk-test",
-        textModel: "doubao-seed-1-6-250615",
-        imageModel: "doubao-seedream-4-5-251128",
-      },
-      "prompt",
-    );
-
-    expect(request).toMatchObject({
-      model: "doubao-seedream-4-5-251128",
-      prompt: "prompt",
-      n: 1,
-      size: "2048x2048",
-      image: codenamesPicturesReferenceImageUrl,
-      response_format: "b64_json",
-      watermark: false,
-    });
-    expect(request).not.toHaveProperty("output_format");
   });
 
   it("keeps output_format for Volcano Seedream 5 image requests", () => {
