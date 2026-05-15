@@ -1,7 +1,7 @@
 {
   "name": "codenames-online",
   "private": true,
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "行动代号线下发牌器",
   "author": "codenames",
   "type": "module",

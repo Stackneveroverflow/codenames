@@ -6,6 +6,7 @@ import type {
   CardOwner,
   DeckPreviewState,
   GameTeams,
+  LobbySeat,
   PlayerRole,
   PlayerState,
   PlayerViewSnapshot,
@@ -30,6 +31,7 @@ function createPlayerId(): string {
 
 interface PlayerConnection {
   socketId: string | null;
+  joinToken: string | null;
 }
 
 interface StoredPlayer extends PlayerState, PlayerConnection {}
@@ -44,9 +46,12 @@ const defaultConfig: RoomConfig = {
   locale: "zh-CN",
   gameMode: "text",
   deckMode: "fallback",
+  teamAssignmentMode: "random",
   teamSize: 4,
   boardSize: "classic",
 };
+
+const cluePattern = /^[\p{Script=Han}]{1,4}$/u;
 
 export class RoomStore {
   private rooms = new Map<string, StoredRoom>();
@@ -61,6 +66,10 @@ export class RoomStore {
     const hostId = createPlayerId();
     const timestamp = nowIso();
     const config = { ...defaultConfig, ...partialConfig };
+    if (config.gameMode === "image" && aiConfig) {
+      config.deckMode = "ai";
+    }
+    const hostSeat = config.teamAssignmentMode === "fixed" ? ({ type: "operative", team: "red", index: 1 } satisfies LobbySeat) : null;
     const room: StoredRoom = {
       roomId,
       phase: "lobby",
@@ -90,9 +99,11 @@ export class RoomStore {
           nickname,
           role: "host",
           spectatorIntent: false,
+          lobbySeat: hostSeat,
           online: true,
           joinedAt: timestamp,
           socketId,
+          joinToken: null,
         },
       ],
     };
@@ -100,22 +111,49 @@ export class RoomStore {
     return { roomId, playerId: hostId, snapshot: this.toSnapshot(room, hostId) };
   }
 
-  joinRoom(roomId: string, nickname: string, socketId: string) {
+  joinRoom(roomId: string, nickname: string, socketId: string, joinToken: string | null = null) {
     const room = this.requireRoom(roomId);
+    const existingPlayer = joinToken ? room.players.find((player) => player.joinToken === joinToken) : undefined;
+    if (existingPlayer) {
+      existingPlayer.online = true;
+      existingPlayer.socketId = socketId;
+      this.touch(room);
+      return { playerId: existingPlayer.id, snapshot: this.toSnapshot(room, existingPlayer.id) };
+    }
+    const existingNicknamePlayer = room.players.find((player) => player.nickname === nickname);
+    if (existingNicknamePlayer) {
+      if (existingNicknamePlayer.online) {
+        throw new Error("昵称已存在");
+      }
+      existingNicknamePlayer.online = true;
+      existingNicknamePlayer.socketId = socketId;
+      if (joinToken) {
+        existingNicknamePlayer.joinToken = joinToken;
+      }
+      this.touch(room);
+      return { playerId: existingNicknamePlayer.id, snapshot: this.toSnapshot(room, existingNicknamePlayer.id) };
+    }
+
+    const lobbySeat = room.config.teamAssignmentMode === "fixed" ? this.nextFixedDefaultSeat(room) : null;
+    if (room.config.teamAssignmentMode === "fixed" && !lobbySeat) {
+      throw new Error("固定队伍座位已满");
+    }
+    const spectatorIntent = lobbySeat ? lobbySeat.type === "spectator" : this.participantCount(room) >= room.config.teamSize;
     if (room.players.some((player) => player.nickname === nickname)) {
       throw new Error("昵称已存在");
     }
 
     const playerId = createPlayerId();
-    const spectatorIntent = this.participantCount(room) >= room.config.teamSize;
     room.players.push({
       id: playerId,
       nickname,
       role: "spectator",
       spectatorIntent,
+      lobbySeat,
       online: true,
       joinedAt: nowIso(),
       socketId,
+      joinToken,
     });
     this.touch(room, {
       type: "player_joined",
@@ -167,7 +205,26 @@ export class RoomStore {
     if (room.phase !== "lobby") {
       throw new Error("发牌后不可修改设置，请先重新开局");
     }
-    room.config = { ...room.config, ...partial };
+    room.config = {
+      ...room.config,
+      ...partial,
+      ...(partial.gameMode === "text" ? { deckMode: "fallback" as const } : {}),
+    };
+    if (partial.teamAssignmentMode === "fixed") {
+      this.ensureFixedSeats(room);
+    }
+    if (partial.teamAssignmentMode === "random") {
+      for (const player of room.players) {
+        player.lobbySeat = null;
+      }
+    }
+    if (partial.gameMode === "text") {
+      room.aiConfig = null;
+      room.pendingDeck = null;
+      room.deckPreview = null;
+      room.deckGeneration = null;
+    }
+    this.resetLobbyRoles(room);
     this.touch(room);
   }
 
@@ -177,12 +234,73 @@ export class RoomStore {
       throw new Error("游戏开始后不可切换旁观状态");
     }
     const player = this.requirePlayer(room, actorId);
+    if (room.config.teamAssignmentMode === "fixed") {
+      const seat = spectatorIntent ? this.nextFixedSpectatorSeat(room, player.id) : this.nextFixedOperativeSeat(room, player.id);
+      if (!seat) {
+        throw new Error(spectatorIntent ? "旁观者座位已满" : "普通队员座位已满");
+      }
+      player.lobbySeat = seat;
+      player.spectatorIntent = seat.type === "spectator";
+      this.resetLobbyRoles(room);
+      this.touch(room, {
+        type: "system",
+        message: `${player.nickname} ${player.spectatorIntent ? "进入旁观者队列" : "加入游戏玩家队列"}`,
+      });
+      return;
+    }
     player.spectatorIntent = spectatorIntent;
     this.resetLobbyRoles(room);
     this.touch(room, {
       type: "system",
       message: `${player.nickname} ${spectatorIntent ? "进入旁观者队列" : "加入游戏玩家队列"}`,
     });
+  }
+
+  moveSeat(roomId: string, actorId: string, seat: LobbySeat | null) {
+    const room = this.requireRoom(roomId);
+    if (room.phase !== "lobby") {
+      throw new Error("游戏开始后不可移动位置");
+    }
+    if (room.config.teamAssignmentMode !== "fixed") {
+      throw new Error("固定队伍模式下才可移动位置");
+    }
+    const player = this.requirePlayer(room, actorId);
+    const nextSeat = seat ?? this.nextFixedOperativeSeat(room, player.id);
+    if (!nextSeat) {
+      throw new Error("没有可用座位");
+    }
+    if (this.seatOwner(room, nextSeat, player.id)) {
+      throw new Error("该位置已有玩家");
+    }
+    player.lobbySeat = nextSeat;
+    player.spectatorIntent = nextSeat.type === "spectator";
+    this.resetLobbyRoles(room);
+    this.touch(room, { type: "system", message: `${player.nickname} 调整了队伍位置` });
+  }
+
+  kickPlayer(roomId: string, actorId: string, targetPlayerId: string) {
+    const room = this.requireRoom(roomId);
+    this.requireHost(room, actorId);
+    if (room.phase !== "lobby") {
+      throw new Error("只能在等候房间移出玩家");
+    }
+    if (targetPlayerId === room.hostId) {
+      throw new Error("房主不能移出自己");
+    }
+    const playerIndex = room.players.findIndex((entry) => entry.id === targetPlayerId);
+    if (playerIndex === -1) {
+      throw new Error("玩家不存在");
+    }
+    const [removed] = room.players.splice(playerIndex, 1);
+    if (!removed) {
+      throw new Error("玩家不存在");
+    }
+    this.resetLobbyRoles(room);
+    this.touch(room, {
+      type: "player_kicked",
+      message: `${removed.nickname} 已被房主移出房间`,
+    });
+    return { playerId: removed.id, socketId: removed.socketId };
   }
 
   assignRole(roomId: string, actorId: string, targetPlayerId: string, role: PlayerRole) {
@@ -200,6 +318,20 @@ export class RoomStore {
     const room = this.requireRoom(roomId);
     this.requireHost(room, actorId);
     this.dealRoom(room, deck, "已发牌");
+  }
+
+  startPendingImageDeck(roomId: string, actorId: string) {
+    const room = this.requireRoom(roomId);
+    this.requireHost(room, actorId);
+    if (!room.pendingDeck || room.deckPreview) {
+      throw new Error("没有已确认的图片牌阵");
+    }
+    this.dealRoom(room, room.pendingDeck, "已使用确认图片牌阵发牌");
+  }
+
+  hasConfirmedImageDeck(roomId: string) {
+    const room = this.requireRoom(roomId);
+    return room.config.gameMode === "image" && Boolean(room.pendingDeck && !room.deckPreview);
   }
 
   previewImageDeck(roomId: string, actorId: string, deck: ValidatedDeck) {
@@ -241,7 +373,14 @@ export class RoomStore {
     if (!room.pendingDeck || !room.deckPreview) {
       throw new Error("没有待确认的图片牌阵");
     }
-    this.dealRoom(room, room.pendingDeck, "已确认图片牌阵并发牌");
+    room.phase = "lobby";
+    room.deckPreview = null;
+    room.deckGeneration = null;
+    room.board = null;
+    room.keyGrid = null;
+    room.teams = null;
+    room.turn = null;
+    this.touch(room, { type: "system", message: "图片牌阵已确认，等待房主开始游戏" });
   }
 
   getConfig(roomId: string): RoomConfig {
@@ -286,13 +425,20 @@ export class RoomStore {
     if (room.turn.activePlayerId !== actor.id || room.teams[room.turn.currentTeam].spymasterId !== actor.id) {
       throw new Error("只有当前队长可以提交线索");
     }
-    const forbiddenText = findForbiddenClueText(room.board, clueText);
+    const normalizedClue = clueText.trim();
+    if (!cluePattern.test(normalizedClue)) {
+      throw new Error("线索只能是1到4个汉字");
+    }
+    if (!Number.isInteger(count) || count <= 0) {
+      throw new Error("线索数量必须大于0");
+    }
+    const forbiddenText = findForbiddenClueText(room.board, normalizedClue);
     if (forbiddenText) {
       throw new Error(`线索不能包含牌阵中出现的字：${forbiddenText}，请重新输入`);
     }
 
-    room.turn = submitClue(room.turn, room.teams, clueText, count);
-    this.touch(room, { type: "system", message: `${actor.nickname} 给出线索「${clueText}」 ${count}` });
+    room.turn = submitClue(room.turn, room.teams, normalizedClue, count);
+    this.touch(room, { type: "system", message: `${actor.nickname} 给出线索「${normalizedClue}」 ${count}` });
   }
 
   guessCard(roomId: string, actorId: string, cardId: string) {
@@ -345,7 +491,8 @@ export class RoomStore {
       ...snapshotRoom,
       selfId: self.id,
       selfRole: self.role,
-      players: room.players.map(({ socketId: _socketId, ...player }) => player),
+      confirmedDeckReady: room.config.gameMode === "image" && Boolean(room.pendingDeck && !room.deckPreview),
+      players: room.players.map(({ socketId: _socketId, joinToken: _joinToken, ...player }) => player),
       ...(canSeeKey ? { keyGrid: room.keyGrid } : {}),
       deckPreview: this.previewForSnapshot(room.deckPreview, canSeePreview),
     };
@@ -417,6 +564,76 @@ export class RoomStore {
     return room.players.filter((player) => !player.spectatorIntent).length;
   }
 
+  private sameSeat(left: LobbySeat | null | undefined, right: LobbySeat) {
+    if (!left || left.type !== right.type) {
+      return false;
+    }
+    if (left.type === "spectator" && right.type === "spectator") {
+      return left.index === right.index;
+    }
+    if (left.type === "spymaster" && right.type === "spymaster") {
+      return left.team === right.team;
+    }
+    if (left.type === "operative" && right.type === "operative") {
+      return left.team === right.team && left.index === right.index;
+    }
+    return false;
+  }
+
+  private seatOwner(room: StoredRoom, seat: LobbySeat, excludingPlayerId?: string): StoredPlayer | undefined {
+    return room.players.find((player) => player.id !== excludingPlayerId && this.sameSeat(player.lobbySeat, seat));
+  }
+
+  private fixedOperativeSeats(): LobbySeat[] {
+    return [
+      ...Array.from({ length: 6 }, (_, index) => ({ type: "operative" as const, team: "red" as const, index: index + 1 })),
+      ...Array.from({ length: 6 }, (_, index) => ({ type: "operative" as const, team: "blue" as const, index: index + 1 })),
+    ];
+  }
+
+  private fixedSpectatorSeats(): LobbySeat[] {
+    return Array.from({ length: 3 }, (_, index) => ({ type: "spectator" as const, index: index + 1 }));
+  }
+
+  private nextFixedOperativeSeat(room: StoredRoom, excludingPlayerId?: string): LobbySeat | null {
+    const seats = this.fixedOperativeSeats();
+    const redCount = room.players.filter((player) => player.id !== excludingPlayerId && player.lobbySeat?.type === "operative" && player.lobbySeat.team === "red").length;
+    const blueCount = room.players.filter((player) => player.id !== excludingPlayerId && player.lobbySeat?.type === "operative" && player.lobbySeat.team === "blue").length;
+    const teamOrder: TeamName[] = redCount <= blueCount ? ["red", "blue"] : ["blue", "red"];
+    for (const team of teamOrder) {
+      const seat = seats.find((candidate) => candidate.type === "operative" && candidate.team === team && !this.seatOwner(room, candidate, excludingPlayerId));
+      if (seat) {
+        return seat;
+      }
+    }
+    return null;
+  }
+
+  private nextFixedSpectatorSeat(room: StoredRoom, excludingPlayerId?: string): LobbySeat | null {
+    return this.fixedSpectatorSeats().find((seat) => !this.seatOwner(room, seat, excludingPlayerId)) ?? null;
+  }
+
+  private nextFixedDefaultSeat(room: StoredRoom, excludingPlayerId?: string): LobbySeat | null {
+    return this.nextFixedOperativeSeat(room, excludingPlayerId) ?? this.nextFixedSpectatorSeat(room, excludingPlayerId);
+  }
+
+  private ensureFixedSeats(room: StoredRoom) {
+    for (const player of [...room.players].sort((left, right) => left.joinedAt.localeCompare(right.joinedAt))) {
+      if (player.lobbySeat && !this.seatOwner(room, player.lobbySeat, player.id)) {
+        player.spectatorIntent = player.lobbySeat.type === "spectator";
+        continue;
+      }
+      const seat = this.nextFixedDefaultSeat(room, player.id);
+      if (!seat) {
+        player.lobbySeat = null;
+        player.spectatorIntent = true;
+        continue;
+      }
+      player.lobbySeat = seat;
+      player.spectatorIntent = seat.type === "spectator";
+    }
+  }
+
   private requireActiveGame(roomId: string): StoredRoom & { board: NonNullable<StoredRoom["board"]>; keyGrid: NonNullable<StoredRoom["keyGrid"]>; teams: GameTeams; turn: NonNullable<StoredRoom["turn"]> } {
     const room = this.requireRoom(roomId);
     if (room.phase !== "dealt" || !room.board || !room.keyGrid || !room.teams || !room.turn) {
@@ -445,6 +662,10 @@ export class RoomStore {
   }
 
   private assignOnlineTeams(room: StoredRoom): GameTeams {
+    if (room.config.teamAssignmentMode === "fixed") {
+      return this.assignFixedTeams(room);
+    }
+
     const onlinePlayers = room.players
       .filter((player) => player.online && !player.spectatorIntent)
       .sort((left, right) => left.joinedAt.localeCompare(right.joinedAt))
@@ -468,8 +689,53 @@ export class RoomStore {
     return teams;
   }
 
+  private assignFixedTeams(room: StoredRoom): GameTeams {
+    const teamEntries = (["red", "blue"] as const).map((team) => {
+      const captainSeatPlayer = room.players.find((player) => player.online && player.lobbySeat?.type === "spymaster" && player.lobbySeat.team === team);
+      const operativeSeatPlayers = room.players
+        .filter((player) => player.online && player.lobbySeat?.type === "operative" && player.lobbySeat.team === team)
+        .sort((left, right) => {
+          const leftIndex = left.lobbySeat?.type === "operative" ? left.lobbySeat.index : 0;
+          const rightIndex = right.lobbySeat?.type === "operative" ? right.lobbySeat.index : 0;
+          return leftIndex - rightIndex || left.joinedAt.localeCompare(right.joinedAt);
+        });
+
+      if (captainSeatPlayer && operativeSeatPlayers.length < 1) {
+        throw new Error("红蓝双方都需要 1 名队长和至少 1 名队员");
+      }
+      if (!captainSeatPlayer && operativeSeatPlayers.length < 2) {
+        throw new Error("红蓝双方都需要 1 名队长和至少 1 名队员");
+      }
+
+      const randomCaptainIndex = captainSeatPlayer ? -1 : Math.floor(Math.random() * operativeSeatPlayers.length);
+      const spymaster = captainSeatPlayer ?? operativeSeatPlayers[randomCaptainIndex]!;
+      const operatives = captainSeatPlayer
+        ? operativeSeatPlayers
+        : operativeSeatPlayers.filter((player) => player.id !== spymaster.id);
+
+      return [team, { spymasterId: spymaster.id, operativeIds: operatives.map((player) => player.id) }] as const;
+    });
+
+    const teams = Object.fromEntries(teamEntries) as GameTeams;
+    const roleByPlayer = new Map<string, PlayerRole>([
+      [teams.red.spymasterId, "red_spymaster"],
+      [teams.blue.spymasterId, "blue_spymaster"],
+      ...teams.red.operativeIds.map((id) => [id, "red_operatives"] as const),
+      ...teams.blue.operativeIds.map((id) => [id, "blue_operatives"] as const),
+    ]);
+
+    for (const player of room.players) {
+      player.role = roleByPlayer.get(player.id) ?? "spectator";
+    }
+
+    return teams;
+  }
+
   private resetLobbyRoles(room: StoredRoom) {
     for (const player of room.players) {
+      if (room.config.teamAssignmentMode === "random") {
+        player.lobbySeat = null;
+      }
       player.role = player.id === room.hostId && !player.spectatorIntent ? "host" : "spectator";
     }
   }

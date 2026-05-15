@@ -88,11 +88,12 @@ describe("game-core team and turn rules", () => {
     expect(second.activePlayerId).toBe("red-2");
   });
 
-  it("rejects clue counts below zero", () => {
+  it("rejects clue counts that are not positive", () => {
     const deal = createDeal(textContents, "text", "red", () => 0);
     const initial = createInitialTurn("red", teams, deal.keyGrid, deal.board);
 
-    expect(() => submitClue(initial, teams, "线", -1)).toThrow("线索数量不能小于0");
+    expect(() => submitClue(initial, teams, "线", 0)).toThrow("线索数量必须大于0");
+    expect(() => submitClue(initial, teams, "线", -1)).toThrow("线索数量必须大于0");
   });
 
   it("rejects clue counts above the current team's remaining cards", () => {
@@ -138,12 +139,14 @@ describe("game-core team and turn rules", () => {
     const board = [
       { id: "card-1", content: textContents[0]! },
       { id: "card-2", content: textContents[1]! },
+      { id: "card-3", content: textContents[2]! },
     ];
     const wrongKey = [
       { cardId: "card-1", owner: "neutral" as const },
       { cardId: "card-2", owner: "assassin" as const },
+      { cardId: "card-3", owner: "red" as const },
     ];
-    const turn = submitClue(createInitialTurn("red", teams, wrongKey, board), teams, "线", 0);
+    const turn = submitClue(createInitialTurn("red", teams, wrongKey, board), teams, "线", 1);
     const wrong = applyGuess(board, wrongKey, turn, teams, "card-1");
     const assassin = applyGuess(board, wrongKey, turn, teams, "card-2");
 
@@ -185,12 +188,14 @@ describe("game-core team and turn rules", () => {
     const board = [
       { id: "card-1", content: textContents[0]! },
       { id: "card-2", content: textContents[1]! },
+      { id: "card-3", content: textContents[2]! },
     ];
     const keyGrid = [
       { cardId: "card-1", owner: "neutral" as const },
       { cardId: "card-2", owner: "blue" as const },
+      { cardId: "card-3", owner: "red" as const },
     ];
-    const guessingTurn = submitClue(createInitialTurn("red", teams, keyGrid, board, "2026-01-01T00:00:00.000Z"), teams, "线", 0, "2026-01-01T00:02:00.000Z");
+    const guessingTurn = submitClue(createInitialTurn("red", teams, keyGrid, board, "2026-01-01T00:00:00.000Z"), teams, "线", 1, "2026-01-01T00:02:00.000Z");
     const endedTurn = endTurn(guessingTurn, teams, "2026-01-01T00:03:00.000Z");
     const wrongGuess = applyGuess(board, keyGrid, guessingTurn, teams, "card-1", "2026-01-01T00:04:00.000Z");
 
@@ -204,12 +209,14 @@ describe("game-core team and turn rules", () => {
     const board = [
       { id: "card-1", content: textContents[0]! },
       { id: "card-2", content: textContents[1]! },
+      { id: "card-3", content: textContents[2]! },
     ];
     const keyGrid = [
       { cardId: "card-1", owner: "assassin" as const },
       { cardId: "card-2", owner: "blue" as const },
+      { cardId: "card-3", owner: "red" as const },
     ];
-    const turn = submitClue(createInitialTurn("red", teams, keyGrid, board), teams, "线", 0);
+    const turn = submitClue(createInitialTurn("red", teams, keyGrid, board), teams, "线", 1);
     const result = applyGuess(board, keyGrid, turn, teams, "card-1", "2026-01-01T00:05:00.000Z");
 
     expect(result.turn.phase).toBe("ended");
