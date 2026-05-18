@@ -5,7 +5,7 @@ import { app, BrowserWindow, clipboard, Menu, shell, type BrowserWindowConstruct
 import express from "express";
 
 import { createHostInfo } from "../../server/src/network";
-import { createAppServer, type HostInfo } from "../../server/src/socketServer";
+import { attachStaticClient, createAppServer, type HostInfo } from "../../server/src/socketServer";
 
 const DEFAULT_PORT = parsePort(process.env.CODENAMES_HOST_PORT, 3210);
 const desktopDistDir = __dirname;
@@ -41,16 +41,7 @@ function resolveEntryDist() {
 }
 
 function attachWebClient(webApp: express.Express, webDist: string, entryDist: string) {
-  webApp.use("/assets", express.static(path.join(entryDist, "assets")));
-  webApp.use("/entry", express.static(entryDist));
-  webApp.get(/^\/entry(?:\/.*)?$/, (_req, res) => {
-    res.sendFile(path.join(entryDist, "index.html"));
-  });
-
-  webApp.use(express.static(webDist));
-  webApp.get(/.*/, (_req, res) => {
-    res.sendFile(path.join(webDist, "index.html"));
-  });
+  attachStaticClient(webApp, { webDist, entryDist });
 }
 
 function entryUrl(hostInfo: HostInfo, route = "/entry/") {
