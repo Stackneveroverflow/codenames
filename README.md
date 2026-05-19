@@ -69,6 +69,36 @@ corepack pnpm --filter @codenames/entry dev
 
 局域网调试时，确保房主电脑防火墙放行 Node.js 和服务端端口。入口页会打开 `520x1040` 的玩家视口；桌面版玩家窗口也保持同样的内容区尺寸。
 
+## 服务器容器部署
+
+服务器部署使用单镜像、单端口同源模式。容器内由 Express 同时托管游戏页 `/`、入口页 `/entry/`、HTTP API 和 Socket.IO，默认监听 `3001`。
+
+构建镜像：
+
+```bash
+docker build -t codenames:0.9.7 .
+```
+
+运行容器：
+
+```bash
+docker run -d \
+  --name codenames \
+  --restart unless-stopped \
+  -p 3001:3001 \
+  codenames:0.9.7
+```
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:3001/health
+```
+
+公网部署时，建议用 Nginx、Caddy 或云厂商负载均衡把 HTTPS 域名反向代理到 `127.0.0.1:3001`，并确保 WebSocket upgrade 生效。入口页地址为 `https://你的域名/entry/`，游戏页和分享链接会保持同源。
+
+如需使用图片大模型相关环境变量，不要写入镜像；运行时通过 `--env-file` 或 `-e` 注入。
+
 ## 桌面版
 
 桌面版采用 Hosted Server 架构。启动后会在本机开启服务，默认端口 `3210`；如果端口被占用，会自动尝试后续端口。等待房间会显示房主服务器地址，其他设备访问该地址即可加入。

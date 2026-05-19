@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import path from "node:path";
 
 import cors from "cors";
 import express, { type Express } from "express";
@@ -44,6 +45,23 @@ export interface HostInfo {
 
 export interface AppServerOptions {
   getHostInfo?: () => HostInfo;
+}
+
+export interface StaticClientOptions {
+  webDist: string;
+  entryDist: string;
+}
+
+export function attachStaticClient(app: Express, { webDist, entryDist }: StaticClientOptions) {
+  app.use("/entry", express.static(entryDist));
+  app.get(/^\/entry(?:\/.*)?$/, (_req, res) => {
+    res.sendFile(path.join(entryDist, "index.html"));
+  });
+
+  app.use(express.static(webDist));
+  app.get(/.*/, (_req, res) => {
+    res.sendFile(path.join(webDist, "index.html"));
+  });
 }
 
 export function createAppServer(options: AppServerOptions = {}): AppServer {
